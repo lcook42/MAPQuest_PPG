@@ -428,6 +428,13 @@ measurement, and costs one serial command either side of the run.
 the same gap already fixed for provocation captures. Both now write the full firmware
 header, so any two recordings are comparable.
 
+**And: results that only existed on screen are now saved.** `--save` also writes a `.log.txt`
+of the full console report, and the auto-tune trajectory (the amp → DC pairs) goes into the
+CSV header as `autotune_<channel>`. That trajectory is a DC-versus-LED-current curve — real
+data bearing directly on O1 — and it was previously printed and discarded. Warnings, verdicts
+and tuning steps live nowhere else, so without this a run could not be reviewed after the
+fact or shared.
+
 ---
 
 <a id="o1"></a>

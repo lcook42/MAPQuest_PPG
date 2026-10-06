@@ -54,6 +54,33 @@ RATE_TOLERANCE = 0.01  # 1%
 OK, BAD, WARN, SKIP = "PASS", "FAIL", "WARN", "SKIP"
 
 
+class Tee:
+    """Mirror console output into a buffer so a run can be saved verbatim.
+
+    Progress updates are written with a leading carriage return and rewrite
+    one line in place; they are skipped here so the log reads as a clean
+    report rather than thousands of countdown frames.
+    """
+
+    def __init__(self, stream):
+        self.stream = stream
+        self.lines: list[str] = []
+
+    def write(self, text: str) -> int:
+        if not text.startswith("\r"):
+            self.lines.append(text)
+        return self.stream.write(text)
+
+    def flush(self) -> None:
+        self.stream.flush()
+
+    def __getattr__(self, name):
+        return getattr(self.stream, name)
+
+    def dump(self, path: Path) -> None:
+        path.write_text("".join(self.lines), encoding="utf-8")
+
+
 class Report:
     """Collects check outcomes and prints a verdict."""
 
@@ -207,6 +234,7 @@ def auto_tune(dev: Device, report: Report, max_iter: int = 6,
     final: dict[str, float] = {}
 
     skip = skip or set()
+    trajectory: dict[str, list[tuple[int, float]]] = {}
     for channel in ("ir", "red"):
         if channel not in dev.meta.channels or channel in skip:
             continue
@@ -217,6 +245,7 @@ def auto_tune(dev: Device, report: Report, max_iter: int = 6,
             if dc is None:
                 break
             final[channel] = dc
+            trajectory.setdefault(channel, []).append((amps[channel], dc))
             print(f"    {channel:>3}  amp={amps[channel]:>3} "
                   f"({amps[channel] * 0.2:4.1f} mA)  DC={dc:>8,.0f}")
 
@@ -251,6 +280,7 @@ def auto_tune(dev: Device, report: Report, max_iter: int = 6,
                            f"could not reach {DC_MIN:,}-{DC_MAX:,}; "
                            f"settled at DC={dc:,.0f} with amp={amps[channel]}. "
                            "Check sensor contact and shielding.")
+    auto_tune.last_trajectory = trajectory
     return amps
 
 
@@ -635,10 +665,33 @@ def main() -> int:
                     help="declare the link stalled after this many seconds of "
                          "silence mid-capture")
     ap.add_argument("--plot", action="store_true", help="plot the captured trace")
+    ap.add_argument("--log", type=Path, metavar="TXT",
+                    help="write the full console report to a file "
+                         "(automatic alongside --save)")
     ap.add_argument("--save", action="store_true",
                     help="keep the capture as a CSV in data/")
     args = ap.parse_args()
 
+    # --save implies a console log: the report carries the auto-tune steps,
+    # warnings and verdicts that the CSV alone does not.
+    if args.save and not args.log:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        kind = "provocation" if args.provocation else "bench"
+        args.log = DATA_DIR / f"{kind}_{args.site}_{stamp}.log.txt"
+
+    tee = Tee(sys.stdout)
+    sys.stdout = tee
+    try:
+        return _main(args, tee)
+    finally:
+        sys.stdout = tee.stream
+        if args.log:
+            args.log.parent.mkdir(parents=True, exist_ok=True)
+            tee.dump(args.log)
+            print(f"  Saved console report to {args.log}")
+
+
+def _main(args, tee: Tee) -> int:
     if args.reanalyse:
         return run_reanalyse(args)
 
@@ -686,6 +739,7 @@ def main() -> int:
         # Explicit LED currents win over auto-tune. Set before DARK so the
         # recording header reflects what actually ran.
         explicit_amps: set[str] = set()
+        autotune_steps: dict[str, str] = {}
         for channel, value in (("ir", args.ir_amp), ("red", args.red_amp)):
             if value is None:
                 continue
@@ -721,6 +775,8 @@ def main() -> int:
         # -- 3. LED current / DC window ------------------------------------
         if args.auto_tune:
             auto_tune(dev, report, skip=explicit_amps)
+            for ch, steps in getattr(auto_tune, 'last_trajectory', {}).items():
+                autotune_steps[ch] = ','.join(f'{a}:{d:.0f}' for a, d in steps)
 
         # -- 4/5. Capture, rate, continuity --------------------------------
         if args.provocation:
@@ -735,6 +791,10 @@ def main() -> int:
         saved_meta = dict(dev.meta.raw)
         for k, v in dev.meta.dark.items():
             saved_meta[f"dark_{k}"] = f"{v:.0f}"
+        # The tuning trajectory is a DC-vs-LED-current curve, which is data,
+        # not just console chatter. Keep it.
+        for ch, steps in autotune_steps.items():
+            saved_meta[f"autotune_{ch}"] = steps
 
     n = len(idx)
     actual_s = link["actual_s"]

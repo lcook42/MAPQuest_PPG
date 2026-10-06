@@ -92,7 +92,8 @@ python bench_check.py --auto-tune --plot
 This runs the SPEC §3.5 acceptance criteria as pass/fail: sensor found at 0x57, DARK offsets
 ≤128 counts, IR DC inside 105k–157k, output rate within 1% of 100 Hz, and zero dropped samples.
 `--auto-tune` sets the LED currents for you; `--full` runs the 5-minute drop test that is the real
-M1 gate.
+M1 gate. `--save` keeps the samples as CSV **and** the console report as `.log.txt`, with the
+auto-tune DC-versus-current trajectory in the CSV header.
 
 ### 4b. Confirm the sensor sees blood
 

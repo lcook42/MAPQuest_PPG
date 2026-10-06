@@ -679,3 +679,62 @@ def test_amp_out_of_range_rejected(fake):
     code, out = run_bench(fake, ["--seconds", "1", "--no-dark", "--red-amp", "999"])
     assert code == 1
     assert "must be 0-255" in out
+
+
+def test_save_writes_a_console_log(fake, tmp_path):
+    """--save must persist the report, not just the samples.
+
+    The CSV holds numbers; the auto-tune steps, warnings and verdicts only
+    exist in the console output, so a run is not reproducible without them.
+    """
+    log = tmp_path / "run.log.txt"
+    code, out = run_bench(
+        fake, ["--seconds", "1", "--no-dark", "--auto-tune", "--log", str(log)],
+        ir_dc=40_000,
+    )
+    assert code == 0, out
+    assert log.exists()
+    text = log.read_text(encoding="utf-8")
+    assert "MAPQuest bench check" in text
+    assert "Auto-tuning LED current" in text
+    assert "RESULT:" in text
+    # Progress frames rewrite one line with \r and must not bloat the log.
+    assert "\r" not in text
+    assert len(text.splitlines()) < 100
+
+
+def test_autotune_trajectory_is_recorded(fake, tmp_path, monkeypatch):
+    """The DC-vs-current curve is data and must reach the CSV header."""
+    import bench_check
+
+    monkeypatch.setattr(bench_check, "DATA_DIR", tmp_path)
+    code, out = run_bench(
+        fake, ["--seconds", "1", "--no-dark", "--auto-tune", "--save"],
+        ir_dc=40_000,
+    )
+    assert code == 0, out
+    csvs = list(tmp_path.glob("*.csv"))
+    assert csvs, f"no CSV written to {tmp_path}"
+    header = [ln for ln in csvs[0].read_text().splitlines() if ln.startswith("#")]
+    traj = [ln for ln in header if "autotune_ir" in ln]
+    assert traj, header
+    # At least two points, so the curve has a slope.
+    assert len(traj[0].split("=")[1].split(",")) >= 2
+    assert any("ir_amp=" in ln for ln in header)
+
+
+def test_save_implies_a_log(fake, tmp_path, monkeypatch):
+    import bench_check
+
+    monkeypatch.setattr(bench_check, "DATA_DIR", tmp_path)
+    code, _out = run_bench(fake, ["--seconds", "1", "--no-dark", "--save"])
+    assert code == 0
+    assert list(tmp_path.glob("*.log.txt")), list(tmp_path.iterdir())
+
+
+def test_stdout_restored_after_run(fake):
+    """The tee must come off even when a run fails, or later output is lost."""
+    import sys as _sys
+    before = _sys.stdout
+    run_bench(fake, ["--seconds", "1", "--no-dark"], sensor_ok=False)
+    assert _sys.stdout is before
