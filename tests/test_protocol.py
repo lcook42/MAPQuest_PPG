@@ -35,7 +35,8 @@ class FakeSerial:
     def __init__(self, port="FAKE", baud=115200, timeout=1.0,
                  fs=100.0, ir_dc=130_000, red_dc=110_000,
                  dark_ir=95, dark_red=88, drop_at=None, boot_error=None,
-                 sensor_ok=True, part_id=0x15):
+                 sensor_ok=True, part_id=0x15,
+                 pulse_frac=0.0015, bpm=68.0):
         self.port = port
         self.fs = fs
         self.ir_dc = ir_dc
@@ -44,6 +45,8 @@ class FakeSerial:
         self.dark_red = dark_red
         self.drop_at = drop_at            # inject a gap at this sample index
         self.sensor_ok = sensor_ok
+        self.pulse_frac = pulse_frac   # cardiac AC as a fraction of DC
+        self.bpm = bpm
         self.part_id = part_id if sensor_ok else 0x00
         self.ir_amp = 31
         self.red_amp = 31
@@ -91,6 +94,13 @@ class FakeSerial:
     def _sample(self) -> str:
         ir = self._dc_for(self.ir_amp, 31, self.ir_dc, self.dark_ir)
         red = self._dc_for(self.red_amp, 31, self.red_dc, self.dark_red)
+        # Cardiac modulation, so a "healthy" mock looks optically coupled to
+        # blood rather than like a photodiode staring at a wall.
+        if self.pulse_frac:
+            phase = 2 * np.pi * (self.bpm / 60.0) * (self.idx / self.fs)
+            beat = np.sin(phase)
+            ir += int(ir * self.pulse_frac * beat)
+            red += int(red * self.pulse_frac * 0.7 * beat)
         ir += int(self._rng.normal(0, 40))
         red += int(self._rng.normal(0, 40))
         line = f"S,{self.idx},{self.t_us},{max(ir, 0)},{max(red, 0)}"
@@ -412,6 +422,27 @@ def test_bench_check_passes_on_healthy_sensor(fake):
     assert code == 0, out
     assert "M1 hardware criteria met" in out
     assert "zero dropped samples" in out
+    assert "cardiac pulse detected" in out
+
+
+def test_bench_check_warns_when_no_pulse(fake):
+    """Every SPEC 3.5 criterion passes with the sensor pointed at nothing.
+
+    The pulse check is the one that notices, so it must not be silent.
+    """
+    code, out = run_bench(fake, ["--seconds", "1"], pulse_frac=0.0)
+    assert code == 0, out              # not a SPEC 3.5 failure
+    assert "no convincing pulse" in out
+    assert "M1 hardware criteria met" not in out
+
+
+def test_bench_check_reports_plausible_rate(fake):
+    code, out = run_bench(fake, ["--seconds", "1"], bpm=72.0)
+    assert code == 0, out
+    import re
+    m = re.search(r"(\d+) bpm, perfusion index", out)
+    assert m, out
+    assert 60 <= int(m.group(1)) <= 85, out
 
 
 def test_bench_check_fails_without_sensor(fake):

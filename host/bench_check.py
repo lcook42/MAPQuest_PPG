@@ -31,7 +31,10 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from scipy import signal as sig  # noqa: E402
+
 from mapquest.io import Device, check_continuity, find_port  # noqa: E402
+from mapquest.pipeline import PipelineConfig, derive  # noqa: E402
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -176,6 +179,164 @@ def auto_tune(dev: Device, report: Report, max_iter: int = 6) -> dict[str, int]:
     return amps
 
 
+def analyse_pulse(channels: dict[str, np.ndarray], fs: float) -> dict:
+    """Isolate the cardiac component and measure whether one is actually there.
+
+    The acceptance criteria in SPEC 3.5 say nothing about whether the sensor is
+    optically coupled to blood -- a disconnected photodiode sitting at a
+    plausible DC would pass every one of them. A detectable pulse is the best
+    evidence available without a cuff that the light path reaches perfused
+    tissue.
+    """
+    nyq = fs / 2.0
+    lo, hi = 0.7, min(3.5, nyq * 0.9)   # 42-210 bpm
+    sos = sig.butter(2, [lo / nyq, hi / nyq], btype="band", output="sos")
+
+    out: dict = {"band": (lo, hi), "ac": {}, "fs": fs}
+    for name, v in channels.items():
+        x = v.astype(float)
+        padlen = min(3 * (2 * len(sos) + 1), max(len(x) // 3 - 1, 0))
+        out["ac"][name] = sig.sosfiltfilt(sos, x, padlen=padlen)
+
+    ir = channels.get("ir")
+    if ir is None or len(ir) < int(fs * 8):
+        return out
+
+    ir = ir.astype(float)
+    ac = out["ac"]["ir"]
+    dc = float(np.mean(ir))
+
+    nperseg = int(min(len(ir), fs * 8))
+    f, pxx = sig.welch(ir - np.mean(ir), fs=fs, nperseg=nperseg)
+
+    in_band = (f >= lo) & (f <= hi)
+    # Noise floor above the cardiac band but below any mains pickup.
+    noise_band = (f >= 5.0) & (f <= min(20.0, nyq * 0.95))
+
+    out["f"], out["pxx"] = f, pxx
+    out["dc"] = dc
+    out["ac_rms"] = float(np.sqrt(np.mean(ac**2)))
+    out["pi_pct"] = out["ac_rms"] / dc * 100.0 if dc > 0 else float("nan")
+
+    if in_band.any():
+        k = int(np.argmax(pxx[in_band]))
+        out["peak_hz"] = float(f[in_band][k])
+        out["bpm"] = out["peak_hz"] * 60.0
+        peak_power = float(pxx[in_band][k])
+        if noise_band.any():
+            floor = float(np.median(pxx[noise_band]))
+            out["snr_db"] = (10.0 * np.log10(peak_power / floor)
+                             if floor > 0 else float("inf"))
+    return out
+
+
+def plot_capture(idx, channels, fs, pulse, save: Path | None = None) -> None:
+    """Four-panel diagnostic figure.
+
+    Raw counts get one autoscaled axis per channel. The previous version drew
+    the DC target window with axhspan, which forced the y-axis to span
+    105k-157k -- so a pulse of ~100 counts on a 135k baseline was sub-pixel and
+    every trace looked like a flat line. The target window is now annotated
+    instead of drawn, and the cardiac component gets panels of its own.
+    """
+    import matplotlib.pyplot as plt
+
+    t = (idx - idx[0]) / fs
+    colors = {"ir": "#1f4e79", "red": "#c43b2f"}
+    lo, hi = pulse["band"]
+
+    fig = plt.figure(figsize=(12, 10.5))
+    gs = fig.add_gridspec(4, 1, height_ratios=[1.0, 1.0, 1.3, 1.0], hspace=0.45)
+    ax_ir = fig.add_subplot(gs[0])
+    ax_red = fig.add_subplot(gs[1], sharex=ax_ir)
+    ax_ac = fig.add_subplot(gs[2], sharex=ax_ir)
+    ax_psd = fig.add_subplot(gs[3])          # frequency axis, not shared
+
+    # -- Panels 1-2: raw counts, autoscaled per channel -------------------
+    for ax, name in ((ax_ir, "ir"), (ax_red, "red")):
+        if name not in channels:
+            ax.set_visible(False)
+            continue
+        v = channels[name].astype(float)
+        ax.plot(t, v, lw=0.8, color=colors[name])
+        ax.set_ylabel(f"{name.upper()} raw\n[ADC counts]", fontsize=9)
+        ax.grid(alpha=0.25, lw=0.5)
+        ax.margins(x=0)
+        ax.tick_params(labelsize=8)
+
+        dc = float(np.mean(v))
+        drift = float(v[-1] - v[0])
+        span = float(np.ptp(v))
+        in_window = DC_MIN <= dc <= DC_MAX
+        ax.set_title(
+            f"{name.upper()} raw — DC {dc:,.0f} counts "
+            f"({dc / ((1 << 18) - 1) * 100:.0f}% of full scale, "
+            f"{'inside' if in_window else 'OUTSIDE'} the {DC_MIN // 1000}k–"
+            f"{DC_MAX // 1000}k target) · drift {drift:+,.0f} over "
+            f"{t[-1]:.0f} s · span {span:,.0f}",
+            fontsize=8.5, loc="left", color="#444", pad=3)
+        ax.axhline(dc, color="#888", lw=0.6, ls=":")
+
+    # -- Panel 3: the cardiac component -----------------------------------
+    for name, ac in pulse["ac"].items():
+        ax_ac.plot(t, ac, lw=0.9, color=colors.get(name), label=name.upper())
+    ax_ac.axhline(0, color="k", lw=0.5, alpha=0.5)
+    ax_ac.set_ylabel(f"AC component\n[counts, {lo:g}–{hi:g} Hz]", fontsize=9)
+    ax_ac.set_xlabel("time (s)", fontsize=9)
+    ax_ac.grid(alpha=0.25, lw=0.5)
+    ax_ac.margins(x=0)
+    ax_ac.tick_params(labelsize=8)
+    ax_ac.legend(loc="upper right", fontsize=8, ncol=2)
+
+    # Panels 1-2 share the time axis with panel 3; only label it once.
+    for ax in (ax_ir, ax_red):
+        ax.tick_params(labelbottom=False)
+
+    bits = [f"band-pass {lo:g}–{hi:g} Hz ({lo * 60:.0f}–{hi * 60:.0f} bpm)"]
+    if "pi_pct" in pulse:
+        bits.append(f"perfusion index {pulse['pi_pct']:.3f}% rms")
+    if "bpm" in pulse:
+        bits.append(f"dominant {pulse['bpm']:.0f} bpm")
+    ax_ac.set_title("Cardiac component — each bump should be one heartbeat.  "
+                    + " · ".join(bits), fontsize=8.5, loc="left",
+                    color="#444", pad=3)
+
+    # -- Panel 4: spectrum ------------------------------------------------
+    if "f" in pulse:
+        f, pxx = pulse["f"], pulse["pxx"]
+        keep = f <= min(20.0, fs / 2)
+        ax_psd.semilogy(f[keep], pxx[keep], lw=0.9, color=colors.get("ir"))
+        ax_psd.axvspan(lo, hi, color="#2e9e4f", alpha=0.12, lw=0,
+                       label=f"cardiac band {lo:g}–{hi:g} Hz")
+        if "peak_hz" in pulse:
+            ax_psd.axvline(pulse["peak_hz"], color="#0a7d2c", lw=1.2)
+            label = f"  {pulse['bpm']:.0f} bpm"
+            if "snr_db" in pulse:
+                label += f", {pulse['snr_db']:.0f} dB"
+            ax_psd.annotate(label, (pulse["peak_hz"], pxx[keep].max()),
+                            fontsize=9, color="#0a7d2c", fontweight="bold",
+                            va="top")
+        ax_psd.set_xlim(0, float(f[keep].max()))
+        ax_psd.set_xlabel("frequency (Hz)", fontsize=9)
+        ax_psd.set_ylabel("IR power spectral density\n[counts²/Hz]", fontsize=9)
+        ax_psd.grid(alpha=0.25, lw=0.5, which="both")
+        ax_psd.tick_params(labelsize=8)
+        ax_psd.legend(loc="upper right", fontsize=8)
+        ax_psd.set_title("Spectrum of IR — a clear peak inside the green band "
+                         "means a real pulse, not drift or noise",
+                         fontsize=8.5, loc="left", color="#444", pad=3)
+    else:
+        ax_psd.set_visible(False)
+
+    fig.suptitle(f"MAPQuest bench capture — {len(idx):,} samples @ {fs:g} Hz "
+                 f"({t[-1]:.0f} s)", fontsize=11, fontweight="bold")
+
+    if save:
+        fig.savefig(save, dpi=130, bbox_inches="tight")
+        print(f"  Saved plot to {save}")
+    plt.show()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -312,6 +473,28 @@ def main() -> int:
     report.add(SKIP, "pressure stream at ~40 Hz",
                "HX710B not fitted (PRESSURE_ENABLED=0)")
 
+    # -- Beyond SPEC 3.5: is the sensor actually seeing blood? ------------
+    # Every criterion above would pass with the photodiode staring at a wall.
+    pulse = analyse_pulse(channels, fs_cfg)
+    if "snr_db" not in pulse:
+        report.add(WARN, "cardiac pulse detected", "capture too short to measure")
+    else:
+        detail = (f"{pulse['bpm']:.0f} bpm, perfusion index "
+                  f"{pulse['pi_pct']:.3f}% rms, peak {pulse['snr_db']:.1f} dB "
+                  f"above the 5–20 Hz noise floor")
+        plausible = 40 <= pulse["bpm"] <= 180
+        if pulse["snr_db"] >= 10.0 and plausible:
+            report.add(OK, "cardiac pulse detected", detail)
+        elif pulse["snr_db"] >= 6.0 and plausible:
+            report.add(WARN, "cardiac pulse detected",
+                       detail + " — weak. Strap it snug rather than holding it, "
+                       "and shade it from overhead light.")
+        else:
+            report.add(WARN, "cardiac pulse detected",
+                       detail + " — no convincing pulse. Everything above can "
+                       "pass with the sensor pointed at nothing, so check skin "
+                       "contact before trusting any recording.")
+
     # -- Optional artefacts ------------------------------------------------
     out_path = None
     if args.save:
@@ -328,27 +511,8 @@ def main() -> int:
         print(f"\n  Saved capture to {out_path}")
 
     if args.plot:
-        import matplotlib.pyplot as plt
-
-        t = (idx - idx[0]) / fs_cfg
-        fig, axes = plt.subplots(len(channels), 1, figsize=(11, 3 * len(channels)),
-                                 sharex=True)
-        axes = np.atleast_1d(axes)
-        colors = {"ir": "#1f4e79", "red": "#c43b2f"}
-        for ax, (name, v) in zip(axes, channels.items()):
-            ax.plot(t, v, lw=0.7, color=colors.get(name))
-            ax.axhspan(DC_MIN, DC_MAX, color="#2e9e4f", alpha=0.10, lw=0)
-            ax.set_ylabel(f"{name} [counts]")
-            ax.grid(alpha=0.25, lw=0.5)
-            ax.margins(x=0)
-        axes[0].set_title("Bench capture — green band is the SPEC 3.1 DC target window",
-                          fontsize=9)
-        axes[-1].set_xlabel("time (s)")
-        fig.tight_layout()
-        if out_path:
-            fig.savefig(out_path.with_suffix(".png"), dpi=130, bbox_inches="tight")
-            print(f"  Saved plot to {out_path.with_suffix('.png')}")
-        plt.show()
+        plot_capture(idx, channels, fs_cfg, pulse,
+                     save=out_path.with_suffix(".png") if out_path else None)
 
     return report.verdict()
 
