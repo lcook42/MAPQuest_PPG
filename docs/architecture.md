@@ -1,7 +1,8 @@
 # MAPQuest — Architecture & Signal Pipeline
 
 Living document. Updated as the system changes; see the status table at the bottom for what
-is verified on hardware versus only on synthetic data.
+is verified on hardware versus only on synthetic data. The reasoning behind each choice
+lives in [`decisions.md`](decisions.md).
 
 Last updated: 2026-10-06, after the first successful wrist provocation test.
 
@@ -13,7 +14,7 @@ Last updated: 2026-10-06, after the first successful wrist provocation test.
 flowchart TD
     subgraph SUBJECT["Subject"]
         CUFF["Upper-arm cuff<br/>manual bulb, bled at ~2 mmHg/s"]
-        TISSUE["Distal tissue (wrist)<br/>fills when cuff drops below<br/>arterial pressure"]
+        TISSUE["Distal tissue — WRIST<br/>(SPEC says forearm; see D18)<br/>fills when cuff drops below<br/>arterial pressure"]
         CUFF -->|occludes| TISSUE
     end
 
@@ -198,6 +199,8 @@ flowchart LR
 | Bench trials | not started | — |
 
 ### Open issues
+
+Tracked as O1–O3 in [`decisions.md`](decisions.md).
 
 | Issue | Impact |
 |---|---|

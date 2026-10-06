@@ -146,6 +146,8 @@ tests/
 data/                  recordings (gitignored)
 docs/
   SPEC.md              the requirements
+  decisions.md         decision log — every deviation and why
+  architecture.md      system + pipeline diagrams, living status
   led-selection-report.md  why Red + IR, with sources
 ```
 
@@ -156,6 +158,13 @@ Red + IR in SpO2 mode, 411 µs pulse width (18-bit), 400 sps internal with 4× h
 
 Green is deliberately unused — the two-wavelength Beer–Lambert solve needs the 660/880 nm pair, and
 green's 0.3–0.8 mm penetration would miss the forearm filling anyway. See the LED report.
+
+## Decisions
+
+Every non-obvious choice is recorded in [`docs/decisions.md`](docs/decisions.md), including the
+four places this build deviates from `SPEC.md` (onset method, measurement site, and two
+protocol additions) and the three open questions that gate whether the measurement
+works at all.
 
 ## Two things to know before trusting a number
 
