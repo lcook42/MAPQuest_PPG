@@ -259,6 +259,27 @@ class Device:
                 break
         return dict(self.meta.dark)
 
+    def read_temperature(self, wait: float = 2.0) -> float | None:
+        """One-shot die temperature in degC, or None if it did not answer.
+
+        Useful for the LED self-heating question: the datasheet (Table 13)
+        gives up to 8 degC rise at high LED current and duty cycle, and red
+        output and wavelength both move with it.
+        """
+        self.command("TEMP")
+        deadline = time.time() + wait
+        while time.time() < deadline:
+            line = self.readline()
+            if not line:
+                continue
+            self._absorb(line)
+            if "temp_c=" in line:
+                try:
+                    return float(line.split("temp_c=")[1].split()[0])
+                except (ValueError, IndexError):
+                    return None
+        return None
+
     def set_amp(self, channel: str, value: int) -> None:
         verb = {"ir": "IRAMP", "red": "REDAMP"}[channel]
         self.command(f"{verb} {int(value)}")

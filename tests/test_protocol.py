@@ -38,7 +38,8 @@ class FakeSerial:
                  dark_ir=95, dark_red=88, drop_at=None, boot_error=None,
                  sensor_ok=True, part_id=0x15,
                  pulse_frac=0.0015, bpm=68.0,
-                 die_at=None, stall_at=None, reset_at=None):
+                 die_at=None, stall_at=None, reset_at=None,
+                 temp_c=28.5, temp_rise_per_sample=0.0):
         self.port = port
         self.fs = fs
         self.ir_dc = ir_dc
@@ -53,6 +54,8 @@ class FakeSerial:
         self.stall_at = stall_at  # go silent after N samples
         self.reset_at = reset_at  # restart the sample index after N
         self.sent = 0
+        self.temp_c = temp_c
+        self.temp_rise_per_sample = temp_rise_per_sample
         self.part_id = part_id if sensor_ok else 0x00
         self.ir_amp = 31
         self.red_amp = 31
@@ -165,7 +168,9 @@ class FakeSerial:
                 self.red_amp = v
                 self._emit(f"# red_amp={v} red_amp_ma={v * 0.2:.1f}")
         elif verb == "TEMP":
-            self._emit("# temp_c=28.5000")
+            # Die warms with LED activity, like the real part.
+            t = self.temp_c + self.temp_rise_per_sample * self.sent
+            self._emit(f"# temp_c={t:.4f}")
         elif verb:
             self._emit(f"E,unknown command: {verb}")
 
@@ -631,3 +636,46 @@ def test_healthy_link_reports_stable(fake):
     code, out = run_bench(fake, ["--seconds", "1", "--no-dark"])
     assert code == 0, out
     assert "serial link stable" in out
+
+
+def test_read_temperature(fake):
+    with open_device(fake, temp_c=31.25) as dev:
+        dev.info()
+        assert dev.read_temperature() == pytest.approx(31.25, abs=0.01)
+
+
+def test_read_temperature_returns_none_when_unsupported(fake):
+    """Older firmware without TEMP must not crash the caller."""
+    with open_device(fake) as dev:
+        dev.info()
+        dev._ser._handle = lambda cmd: None      # swallow TEMP
+        assert dev.read_temperature(wait=0.3) is None
+
+
+def test_provocation_flags_die_heating(fake):
+    """A warming die must be surfaced -- it is the O1 self-heating evidence."""
+    code, out = run_bench(
+        fake,
+        ["--provocation", "--phase-seconds", "1", "--no-dark", "--red-amp", "20"],
+        temp_c=28.0, temp_rise_per_sample=0.0005,
+    )
+    assert "Die temp" in out
+    assert "die temperature stable" in out
+    assert "red set to 20" in out
+
+
+def test_explicit_amp_excluded_from_autotune(fake):
+    """--red-amp must survive --auto-tune rather than being overwritten."""
+    code, out = run_bench(
+        fake, ["--seconds", "1", "--no-dark", "--auto-tune", "--red-amp", "20"],
+        ir_dc=40_000,
+    )
+    assert "red set to 20" in out
+    assert "auto-tune ir" in out          # IR still tuned
+    assert "auto-tune red" not in out     # red left alone
+
+
+def test_amp_out_of_range_rejected(fake):
+    code, out = run_bench(fake, ["--seconds", "1", "--no-dark", "--red-amp", "999"])
+    assert code == 1
+    assert "must be 0-255" in out

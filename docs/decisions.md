@@ -29,6 +29,7 @@ experiment settles something.
 | [D17](#d17) | Typed link errors and partial-capture salvage | accepted |
 | [D18](#d18) | **Measurement site: wrist, not ventral forearm** | accepted — **deviates from SPEC §2.1/§8** |
 | [D19](#d19) | Pressure path compiled out behind a flag | accepted |
+| [D20](#d20) | Explicit LED currents + die-temperature bracketing | accepted |
 | [O1](#o1) | Red channel drift — cause and mitigation | **open** |
 | [O2](#o2) | `synth.py` noise defaults do not match hardware | **open** |
 | [O3](#o3) | Is the onset noise floor low enough to work? | **open** |
@@ -404,6 +405,31 @@ compiler cannot check.
 
 ---
 
+<a id="d20"></a>
+## D20 — Explicit LED current flags and die-temperature bracketing
+
+**Status:** accepted · 2026-10-06
+
+**Context.** O1 needs a controlled experiment: vary red LED current, hold everything else
+fixed, compare drift. Auto-tune picks currents on its own, so it cannot answer the question.
+
+**Decision.**
+- `--ir-amp` / `--red-amp` on `bench_check.py` set currents explicitly and exclude that
+  channel from `--auto-tune`, so one channel can be pinned while the other is tuned.
+- Every capture is bracketed by a `TEMP` reading, and the rise is reported and written into
+  the header.
+
+**Why the temperature.** The self-heating hypothesis for O1 was inferred, not measured.
+Datasheet Table 13 gives up to 8 °C rise at high LED current and duty cycle, and red output
+and wavelength both move with it. Reading the die directly turns a hypothesis into a
+measurement, and costs one serial command either side of the run.
+
+**Also fixed here.** The plain-capture CSV writer still emitted only three header lines —
+the same gap already fixed for provocation captures. Both now write the full firmware
+header, so any two recordings are comparable.
+
+---
+
 <a id="o1"></a>
 ## O1 — Red channel drift: cause and mitigation
 
@@ -424,9 +450,11 @@ two-wavelength is slightly *better* (7.65 vs 9.05), so there is no clean case fo
 **Leading hypothesis.** Red LED self-heating. Auto-tune set red to 19.8 mA against IR's
 8.4 mA, and datasheet Table 13 gives up to 8 °C rise at high current and duty cycle.
 
-**Next test.** Lower red current, allow a warm-up before recording, re-run the provocation and
-compare drift. LED amplitudes are now recorded in every capture header, so runs are
-comparable.
+**Next test (ready to run).** Two back-to-back still captures at the same placement, red
+current high then low, IR pinned identically in both — see D20 for the flags. Measured with
+the arm **still**: drift is a resting property, and the provocation's movement transients
+would only obscure it. Die temperature is now logged either side of each run, so the
+heating hypothesis is tested directly rather than inferred.
 
 ---
 

@@ -191,7 +191,8 @@ def measure_dc(dev: Device, seconds: float = 1.0) -> dict[str, float]:
             for c, v in channels.items()}
 
 
-def auto_tune(dev: Device, report: Report, max_iter: int = 6) -> dict[str, int]:
+def auto_tune(dev: Device, report: Report, max_iter: int = 6,
+              skip: set[str] | None = None) -> dict[str, int]:
     """Drive IR (and red) LED current until DC lands in the target window.
 
     DC above the dark floor is roughly proportional to LED current, so a
@@ -205,8 +206,9 @@ def auto_tune(dev: Device, report: Report, max_iter: int = 6) -> dict[str, int]:
     full_scale = dev.meta.full_scale
     final: dict[str, float] = {}
 
+    skip = skip or set()
     for channel in ("ir", "red"):
-        if channel not in dev.meta.channels:
+        if channel not in dev.meta.channels or channel in skip:
             continue
         floor = dark.get(channel, 0.0)
 
@@ -518,9 +520,27 @@ def run_provocation_mode(dev: Device, args, report: Report) -> int:
     print(f"\n  Provocation test — sensor on the {args.site}.")
     print("  Strap it on now and keep it in place for the whole run.")
 
+    # Bracket the run with die temperature. If red drift is LED self-heating
+    # (open question O1), the die should warm measurably across the capture.
+    temp_before = dev.read_temperature()
+    if temp_before is not None:
+        print(f"  Die temp: {temp_before:.2f} C at start")
+
     channels, phase_of, protocol, link = provocation.run_protocol(
         dev, protocol, stall_timeout=args.stall_timeout
     )
+
+    temp_after = dev.read_temperature()
+    if temp_before is not None and temp_after is not None:
+        rise = temp_after - temp_before
+        print(f"  Die temp: {temp_after:.2f} C at end ({rise:+.2f} C over the run)")
+        if rise >= 2.0:
+            report.add(WARN, "die temperature stable",
+                       f"{rise:+.2f} C rise — enough to move red LED output and "
+                       "wavelength (datasheet Table 13). Supports the "
+                       "self-heating explanation for red drift.")
+        else:
+            report.add(OK, "die temperature stable", f"{rise:+.2f} C over the run")
 
     if link["status"] != "ok":
         report.add(BAD, "serial link stable",
@@ -565,6 +585,10 @@ def run_provocation_mode(dev: Device, args, report: Report) -> int:
                     fh.write(f"# {k}={v}\n")
                 for k, v in dev.meta.dark.items():
                     fh.write(f"# dark_{k}={v:.0f}\n")
+                if temp_before is not None:
+                    fh.write(f"# temp_start_c={temp_before:.2f}\n")
+                if temp_after is not None:
+                    fh.write(f"# temp_end_c={temp_after:.2f}\n")
                 fh.write(f"# phases={','.join(keys)}\n")
                 fh.write("idx,phase," + ",".join(channels) + "\n")
                 for i in range(len(phase_of)):
@@ -587,6 +611,12 @@ def main() -> int:
                     help="capture duration for the rate/continuity checks")
     ap.add_argument("--full", action="store_true",
                     help="use the full 5 minutes the SPEC 3.5 drop test calls for")
+    ap.add_argument("--ir-amp", type=int, metavar="N",
+                    help="set the IR LED current register (0-255, x0.2 mA) "
+                         "before capture; excludes IR from --auto-tune")
+    ap.add_argument("--red-amp", type=int, metavar="N",
+                    help="set the red LED current register (0-255, x0.2 mA) "
+                         "before capture; excludes red from --auto-tune")
     ap.add_argument("--auto-tune", action="store_true",
                     help="adjust LED current to bring IR DC into range")
     ap.add_argument("--no-dark", action="store_true", help="skip the DARK check")
@@ -653,6 +683,19 @@ def main() -> int:
             report.add(WARN, "firmware reported no errors",
                        "; ".join(dev.errors[:3]))
 
+        # Explicit LED currents win over auto-tune. Set before DARK so the
+        # recording header reflects what actually ran.
+        explicit_amps: set[str] = set()
+        for channel, value in (("ir", args.ir_amp), ("red", args.red_amp)):
+            if value is None:
+                continue
+            if not 0 <= value <= 255:
+                print(f"  ERROR: --{channel}-amp must be 0-255, got {value}")
+                return 1
+            dev.set_amp(channel, value)
+            explicit_amps.add(channel)
+            print(f"  LED   : {channel} set to {value} ({value * 0.2:.1f} mA)")
+
         fs_cfg = dev.meta.fs
         print(f"\n  Config: {dev.meta.describe()}")
         print(f"  Columns: {','.join(dev.meta.columns)}")
@@ -677,7 +720,7 @@ def main() -> int:
 
         # -- 3. LED current / DC window ------------------------------------
         if args.auto_tune:
-            auto_tune(dev, report)
+            auto_tune(dev, report, skip=explicit_amps)
 
         # -- 4/5. Capture, rate, continuity --------------------------------
         if args.provocation:
@@ -687,6 +730,11 @@ def main() -> int:
               f"on the {args.site}.")
         idx, t_us, channels, link = capture(dev, seconds,
                                             stall_timeout=args.stall_timeout)
+        # Snapshot the firmware config while the port is still open, so the
+        # recording written further down is self-describing.
+        saved_meta = dict(dev.meta.raw)
+        for k, v in dev.meta.dark.items():
+            saved_meta[f"dark_{k}"] = f"{v:.0f}"
 
     n = len(idx)
     actual_s = link["actual_s"]
@@ -802,7 +850,14 @@ def main() -> int:
         out_path = DATA_DIR / f"bench_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
         with out_path.open("w") as fh:
             fh.write("# source=bench_check\n")
-            fh.write(f"# fs={fs_cfg:.2f}\n")
+            fh.write(f"# recorded_at="
+                     f"{datetime.now().isoformat(timespec='seconds')}\n")
+            fh.write(f"# site={args.site}\n")
+            # Full firmware header, same as the provocation writer: without
+            # LED amplitudes two captures cannot be compared, which is exactly
+            # what the red-drift question needs.
+            for k, v in saved_meta.items():
+                fh.write(f"# {k}={v}\n")
             fh.write(f"# columns=idx,t_us,{','.join(channels)}\n")
             fh.write(f"idx,t_us,{','.join(channels)}\n")
             for i in range(n):
