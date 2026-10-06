@@ -94,6 +94,24 @@ This runs the SPEC §3.5 acceptance criteria as pass/fail: sensor found at 0x57,
 `--auto-tune` sets the LED currents for you; `--full` runs the 5-minute drop test that is the real
 M1 gate.
 
+### 4b. Confirm the sensor sees blood
+
+SPEC 3.5 can pass with the photodiode staring at a wall, so there is a separate
+test for whether light actually reaches perfused tissue:
+
+```bash
+cd host && python bench_check.py --provocation --site wrist --plot --save
+```
+
+It cues you through raise / rest / lower cycles and reports whether IR DC moves
+reversibly with arm position. Raising the arm drains venous blood, so counts should
+**rise**; lowering it should drop them.
+
+This is a better gate than hunting for a heartbeat: the measurement detects slow venous
+filling, which is roughly 10x larger than the cardiac AC, so a site can be perfectly
+viable while showing no resolvable pulse. The protocol rests before and after each
+manoeuvre, so baseline drift cancels rather than faking a response.
+
 ### 5. Record
 
 ```bash
@@ -117,12 +135,14 @@ host/
     io.py              serial protocol, metadata parsing, CSV load, calibration
     pipeline.py        raw -> dOD -> dV*L -> low-pass -> dV/dt -> onset
   bench_check.py       SPEC 3.5 hardware acceptance checks, LED auto-tune
+  provocation.py       arm-raise blood-volume response test
   logger.py            recording + two-point pressure calibration
   analyze.py           offline analysis, figure, results.csv row
   synth.py             synthetic recordings with known ground truth
 tests/
   test_pipeline.py     SPEC section 6 analysis acceptance tests
   test_protocol.py     serial protocol against a mock firmware
+  test_provocation.py  arm-raise response analysis
 data/                  recordings (gitignored)
 docs/
   SPEC.md              the requirements

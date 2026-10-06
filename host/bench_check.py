@@ -41,7 +41,7 @@ from mapquest.io import (  # noqa: E402
     describe_ports,
     find_port,
 )
-from mapquest.pipeline import PipelineConfig, derive  # noqa: E402
+import provocation  # noqa: E402
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -484,6 +484,70 @@ def plot_capture(idx, channels, fs, pulse, save: Path | None = None) -> None:
     plt.show()
 
 
+def run_provocation_mode(dev: Device, args, report: Report) -> int:
+    """Arm-raise blood-volume response test (see host/provocation.py)."""
+    protocol = provocation.DEFAULT_PROTOCOL
+    if args.phase_seconds:
+        protocol = [(k, args.phase_seconds, lbl, rest)
+                    for k, _d, lbl, rest in protocol]
+
+    print(f"\n  Provocation test — sensor on the {args.site}.")
+    print("  Strap it on now and keep it in place for the whole run.")
+
+    channels, phase_of, protocol, link = provocation.run_protocol(
+        dev, protocol, stall_timeout=args.stall_timeout
+    )
+
+    if link["status"] != "ok":
+        report.add(BAD, "serial link stable",
+                   f"{link['status'].upper()} after {link['actual_s']:.1f} s. "
+                   f"{link['reason']}")
+    else:
+        report.add(OK, "serial link stable",
+                   f"ran the full {link['actual_s']:.0f} s")
+
+    r = provocation.analyse(channels, phase_of, protocol, dev.meta.fs,
+                            dark=dev.meta.dark, link=link)
+    print(provocation.format_result(r, site=args.site))
+
+    verdict = r.verdict
+    best = max((e["z"] for e in r.effects.values()), default=float("nan"))
+    detail = f"verdict {verdict}, strongest effect z={best:.1f}"
+    if verdict == "responds":
+        report.add(OK, "responds to blood volume", detail)
+    elif verdict == "inverted":
+        report.add(BAD, "responds to blood volume",
+                   detail + " — response has the wrong sign")
+    else:
+        report.add(WARN, "responds to blood volume",
+                   detail + " — see the diagnosis above")
+
+    out_png = None
+    if args.save or args.plot:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        base = DATA_DIR / f"provocation_{args.site}_{stamp}"
+        if args.save:
+            keys = [p[0] for p in protocol]
+            with base.with_suffix(".csv").open("w") as fh:
+                fh.write("# source=provocation\n")
+                fh.write(f"# fs={dev.meta.fs:.2f}\n")
+                fh.write(f"# site={args.site}\n")
+                for k, v in dev.meta.dark.items():
+                    fh.write(f"# dark_{k}={v:.0f}\n")
+                fh.write(f"# phases={','.join(keys)}\n")
+                fh.write("idx,phase," + ",".join(channels) + "\n")
+                for i in range(len(phase_of)):
+                    vals = ",".join(f"{channels[c][i]:.0f}" for c in channels)
+                    fh.write(f"{i},{keys[phase_of[i]]},{vals}\n")
+            print(f"\n  Saved capture to {base.with_suffix('.csv')}")
+            out_png = base.with_suffix(".png")
+    if args.plot:
+        provocation.plot(r, site=args.site, save=out_png, show=True)
+
+    return report.verdict()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -496,6 +560,14 @@ def main() -> int:
     ap.add_argument("--auto-tune", action="store_true",
                     help="adjust LED current to bring IR DC into range")
     ap.add_argument("--no-dark", action="store_true", help="skip the DARK check")
+    ap.add_argument("--provocation", action="store_true",
+                    help="run the arm-raise blood-volume response test instead "
+                         "of the plain capture")
+    ap.add_argument("--site", default="wrist",
+                    choices=("wrist", "forearm", "finger", "other"),
+                    help="where the sensor is placed; recorded in the output")
+    ap.add_argument("--phase-seconds", type=float,
+                    help="override every provocation phase duration")
     ap.add_argument("--stall-timeout", type=float, default=3.0,
                     help="declare the link stalled after this many seconds of "
                          "silence mid-capture")
@@ -572,7 +644,11 @@ def main() -> int:
             auto_tune(dev, report)
 
         # -- 4/5. Capture, rate, continuity --------------------------------
-        print(f"\n  Capturing {seconds:.0f} s — keep the sensor still on the forearm.")
+        if args.provocation:
+            return run_provocation_mode(dev, args, report)
+
+        print(f"\n  Capturing {seconds:.0f} s — keep the sensor still "
+              f"on the {args.site}.")
         idx, t_us, channels, link = capture(dev, seconds,
                                             stall_timeout=args.stall_timeout)
 
