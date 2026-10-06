@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+import serial
 
 ROOT = Path(__file__).resolve().parent.parent
 HOST = ROOT / "host"
@@ -36,7 +37,8 @@ class FakeSerial:
                  fs=100.0, ir_dc=130_000, red_dc=110_000,
                  dark_ir=95, dark_red=88, drop_at=None, boot_error=None,
                  sensor_ok=True, part_id=0x15,
-                 pulse_frac=0.0015, bpm=68.0):
+                 pulse_frac=0.0015, bpm=68.0,
+                 die_at=None, stall_at=None, reset_at=None):
         self.port = port
         self.fs = fs
         self.ir_dc = ir_dc
@@ -47,6 +49,10 @@ class FakeSerial:
         self.sensor_ok = sensor_ok
         self.pulse_frac = pulse_frac   # cardiac AC as a fraction of DC
         self.bpm = bpm
+        self.die_at = die_at      # raise SerialException after N samples
+        self.stall_at = stall_at  # go silent after N samples
+        self.reset_at = reset_at  # restart the sample index after N
+        self.sent = 0
         self.part_id = part_id if sensor_ok else 0x00
         self.ir_amp = 31
         self.red_amp = 31
@@ -166,9 +172,19 @@ class FakeSerial:
     def readline(self) -> bytes:
         if self._out:
             return self._out.pop(0)
-        if self.streaming:
-            return (self._sample() + "\n").encode()
-        return b""  # timeout
+        if not self.streaming:
+            return b""  # timeout
+        if self.die_at is not None and self.sent >= self.die_at:
+            # What a yanked cable or a USB re-enumeration looks like.
+            raise serial.SerialException(
+                "ClearCommError failed (PermissionError(13, "
+                "'The device does not recognize the command.', None, 22))")
+        if self.stall_at is not None and self.sent >= self.stall_at:
+            return b""  # port still open, firmware silent
+        if self.reset_at is not None and self.sent == self.reset_at:
+            self.idx = 0  # board restarted
+        self.sent += 1
+        return (self._sample() + "\n").encode()
 
     def flush(self) -> None:
         pass
@@ -432,15 +448,55 @@ def test_bench_check_warns_when_no_pulse(fake):
     """
     code, out = run_bench(fake, ["--seconds", "1"], pulse_frac=0.0)
     assert code == 0, out              # not a SPEC 3.5 failure
-    assert "no convincing pulse" in out
+    assert "no periodic cardiac component" in out
+    assert "FINGERTIP" in out          # the advice must point somewhere useful
     assert "M1 hardware criteria met" not in out
+
+
+def test_pulse_detector_rejects_pure_drift():
+    """The false positive that shipped: 1/f drift read as a confident pulse.
+
+    The old detector took the largest in-band FFT bin and compared it to a
+    distant high-frequency floor. On a drift-dominated recording the spectrum
+    falls monotonically, so that lands on the band's lower edge and reports a
+    large SNR for a pulse that is not there. Prominence requires an actual
+    local peak, which drift does not have.
+    """
+    import bench_check as bc
+
+    fs, n = 100.0, 6000
+    t = np.arange(n) / fs
+    rng = np.random.default_rng(1)
+
+    def pink(n):
+        w = rng.normal(0, 1, n)
+        F = np.fft.rfft(w)
+        freq = np.fft.rfftfreq(n, 1 / fs)
+        F[1:] /= freq[1:]
+        F[0] = 0
+        x = np.fft.irfft(F, n)
+        return x / np.std(x)
+
+    drift_only = 109_000 + 550 * pink(n) + rng.normal(0, 40, n)
+    m = bc.analyse_pulse({"ir": drift_only}, fs)["channels"]["ir"]
+    assert m["prominence_db"] is None or m["prominence_db"] < 6.0, (
+        f"drift-only signal reported a {m['prominence_db']} dB pulse at "
+        f"{m['bpm']} bpm"
+    )
+    assert m["drift_ratio"] > 2.0
+
+    real = (109_000 + 109_000 * 0.0015 * np.sin(2 * np.pi * 1.15 * t)
+            + 300 * pink(n) + rng.normal(0, 40, n))
+    m2 = bc.analyse_pulse({"ir": real}, fs)["channels"]["ir"]
+    assert m2["prominence_db"] is not None and m2["prominence_db"] >= 6.0
+    assert abs(m2["bpm"] - 69.0) < 5.0
 
 
 def test_bench_check_reports_plausible_rate(fake):
     code, out = run_bench(fake, ["--seconds", "1"], bpm=72.0)
     assert code == 0, out
     import re
-    m = re.search(r"(\d+) bpm, perfusion index", out)
+    m = re.search(r"IR (\d+) bpm at", out)
     assert m, out
     assert 60 <= int(m.group(1)) <= 85, out
 
@@ -477,3 +533,101 @@ def test_bench_check_auto_tune_reaches_target(fake):
     m = re.search(r"IR DC in [\d,]+-[\d,]+\n\s+mean=([\d,]+)", out)
     assert m, out
     assert 105_000 <= int(m.group(1).replace(",", "")) <= 157_000
+
+
+
+# ---------------------------------------------------------------------------
+# Link failure modes — "the run keeps stopping midway"
+# ---------------------------------------------------------------------------
+
+def test_disconnect_raises_link_lost(fake):
+    """A yanked cable must raise LinkLost, not a bare pyserial traceback."""
+    from mapquest.io import LinkLost
+
+    with open_device(fake, die_at=50) as dev:
+        dev.info()
+        got = []
+        with pytest.raises(LinkLost) as exc:
+            for fields, _ in dev.stream():
+                got.append(fields)
+    assert len(got) == 50
+    assert exc.value.samples == 50
+    assert "50" in str(exc.value)
+
+
+def test_silence_raises_link_stalled_not_hang(fake):
+    """The regression that matters: silence used to spin forever.
+
+    Before this, an empty read after the stream had started just continued the
+    loop, so a wedged board looked like a hang with no diagnosis.
+    """
+    from mapquest.io import LinkStalled
+
+    with open_device(fake, stall_at=40) as dev:
+        dev.info()
+        got = []
+        with pytest.raises(LinkStalled) as exc:
+            for fields, _ in dev.stream(stall_timeout=0.3):
+                got.append(fields)
+    assert len(got) == 40
+    assert exc.value.samples == 40
+    assert "no data for" in str(exc.value)
+
+
+def test_link_errors_carry_partial_sample_count(fake):
+    from mapquest.io import LinkLost
+
+    with open_device(fake, die_at=123) as dev:
+        dev.info()
+        with pytest.raises(LinkLost) as exc:
+            for _ in dev.stream():
+                pass
+    assert exc.value.samples == 123
+
+
+def test_stop_survives_a_dead_port(fake):
+    """Cleanup after a link failure must not raise a second exception."""
+    from mapquest.io import LinkLost
+
+    with open_device(fake, die_at=10) as dev:
+        dev.info()
+        with pytest.raises(LinkLost):
+            for _ in dev.stream():
+                pass
+        dev.stop()          # must not raise
+        dev._ser.die_at = None
+
+
+def test_bench_check_salvages_a_dropped_capture(fake):
+    """A capture that dies partway is kept and diagnosed, not discarded."""
+    code, out = run_bench(fake, ["--seconds", "30", "--no-dark"], die_at=1200)
+    assert code == 1, out
+    assert "LINK LOST" in out
+    assert "Partial capture retained" in out
+    assert "Swap the USB cable" in out
+    # The salvaged samples still went through the downstream checks.
+    assert "IR DC in" in out
+
+
+def test_bench_check_reports_a_stall(fake):
+    code, out = run_bench(
+        fake, ["--seconds", "30", "--no-dark", "--stall-timeout", "0.3"],
+        stall_at=900,
+    )
+    assert code == 1, out
+    assert "LINK STALLED" in out
+    assert "board reset or a wedged sketch" in out
+
+
+def test_bench_check_detects_board_reset(fake):
+    """A sample index going backwards means settings were silently lost."""
+    code, out = run_bench(fake, ["--seconds", "30", "--no-dark"], reset_at=800)
+    assert code == 1, out
+    assert "BOARD RESET" in out
+    assert "Brown-out" in out
+
+
+def test_healthy_link_reports_stable(fake):
+    code, out = run_bench(fake, ["--seconds", "1", "--no-dark"])
+    assert code == 0, out
+    assert "serial link stable" in out

@@ -33,7 +33,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from scipy import signal as sig  # noqa: E402
 
-from mapquest.io import Device, check_continuity, find_port  # noqa: E402
+from mapquest.io import (  # noqa: E402
+    Device,
+    LinkLost,
+    LinkStalled,
+    check_continuity,
+    describe_ports,
+    find_port,
+)
 from mapquest.pipeline import PipelineConfig, derive  # noqa: E402
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -74,45 +81,111 @@ class Report:
         return 0
 
 
-def capture(dev: Device, seconds: float, progress: bool = True):
-    """Stream for a while and return (idx, t_us, {channel: counts})."""
+def _link_advice(status: str) -> str:
+    """What to actually try, ordered by how often it is the cause."""
+    common = [
+        "  Things to try, most likely first:",
+        "    1. Swap the USB cable. Charge-only and thin cables are the most",
+        "       common cause — the board enumerates but drops under sustained",
+        "       traffic.",
+        "    2. Use a port directly on the machine, not a hub, and not a",
+        "       monitor/keyboard passthrough.",
+        "    3. Close anything else holding the port — Arduino IDE Serial",
+        "       Monitor and Serial Plotter both do.",
+        "    4. Disable USB selective suspend for this device (Windows will",
+        "       power down a CDC port it thinks is idle).",
+    ]
+    if status == "stalled":
+        common.insert(1, "    1b. The port stayed open, so the cable is probably "
+                         "fine; a board reset or a wedged sketch is more likely.")
+    if status == "reset":
+        common = [
+            "  The board restarted mid-capture. Usual causes:",
+            "    1. Brown-out — the LEDs pulse hard; try a powered hub or a",
+            "       shorter cable.",
+            "    2. A loose 3V3 or GND to the breakout momentarily opening.",
+            "    3. The reset line being touched by the wiring.",
+        ]
+    return "\n".join(common)
+
+
+def capture(dev: Device, seconds: float, progress: bool = True,
+            stall_timeout: float = 3.0):
+    """Stream for a while and return (idx, t_us, {channel: counts}, link).
+
+    A capture that dies partway is salvaged rather than discarded: ``link``
+    records what went wrong and the samples collected so far are returned, so
+    a 5-minute run that drops at 4 minutes still yields usable data plus a
+    diagnosis.
+    """
     cols = dev.meta.columns
     i_idx, i_us = cols.index("idx"), cols.index("t_us")
     chan_idx = {c: cols.index(c) for c in dev.meta.channels if c in cols}
 
+    link = {"status": "ok", "reason": "", "max_gap_s": 0.0,
+            "resets": 0, "requested_s": seconds, "actual_s": 0.0}
+
     rows: list[list[int]] = []
     t0 = time.time()
     last_print = 0.0
+    prev_idx: int | None = None
 
-    for fields, _line in dev.stream():
-        rows.append(fields)
-        elapsed = time.time() - t0
-        if progress and elapsed - last_print >= 1.0:
-            ir = fields[chan_idx["ir"]] if "ir" in chan_idx else 0
-            sys.stdout.write(
-                f"\r    {elapsed:5.1f}/{seconds:.0f} s   "
-                f"{len(rows):>7,} samples   IR DC {ir:>7,}   "
-            )
-            sys.stdout.flush()
-            last_print = elapsed
-        if elapsed >= seconds:
-            break
+    try:
+        for fields, _line in dev.stream(stall_timeout=stall_timeout):
+            this_idx = fields[i_idx]
+            # An index going backwards means the board restarted: LED
+            # amplitudes reverted to defaults and the dark offsets are gone,
+            # so samples past this point are not comparable to earlier ones.
+            if prev_idx is not None and this_idx < prev_idx:
+                link["resets"] += 1
+                link["status"] = "reset"
+                link["reason"] = (
+                    f"board reset mid-capture (sample index {prev_idx:,} -> "
+                    f"{this_idx:,}) after {len(rows):,} samples. LED and dark "
+                    "settings were lost, so the capture stops here."
+                )
+                break
+            prev_idx = this_idx
+            rows.append(fields)
 
+            elapsed = time.time() - t0
+            if progress and elapsed - last_print >= 1.0:
+                ir = fields[chan_idx["ir"]] if "ir" in chan_idx else 0
+                sys.stdout.write(
+                    f"\r    {elapsed:5.1f}/{seconds:.0f} s   "
+                    f"{len(rows):>7,} samples   IR DC {ir:>7,}   "
+                )
+                sys.stdout.flush()
+                last_print = elapsed
+            if elapsed >= seconds:
+                break
+    except LinkStalled as exc:
+        link["status"] = "stalled"
+        link["reason"] = str(exc)
+    except LinkLost as exc:
+        link["status"] = "lost"
+        link["reason"] = str(exc)
+
+    link["actual_s"] = time.time() - t0
+    link["max_gap_s"] = dev.max_gap_s
     dev.stop()
     if progress:
         print()
 
     if not rows:
-        raise RuntimeError("No samples received")
+        raise RuntimeError(
+            "No samples received. "
+            + (link["reason"] or "The firmware sent nothing after START.")
+        )
 
     arr = np.asarray(rows, dtype=np.int64)
     channels = {c: arr[:, i] for c, i in chan_idx.items()}
-    return arr[:, i_idx], arr[:, i_us], channels
+    return arr[:, i_idx], arr[:, i_us], channels, link
 
 
 def measure_dc(dev: Device, seconds: float = 1.0) -> dict[str, float]:
     """Mean DC per channel over a short burst."""
-    _idx, _us, channels = capture(dev, seconds, progress=False)
+    _idx, _us, channels, _link = capture(dev, seconds, progress=False)
     # Skip the first few samples: the FIFO may hold pre-settling values.
     return {c: float(np.mean(v[5:])) if v.size > 10 else float(np.mean(v))
             for c, v in channels.items()}
@@ -198,36 +271,104 @@ def analyse_pulse(channels: dict[str, np.ndarray], fs: float) -> dict:
         padlen = min(3 * (2 * len(sos) + 1), max(len(x) // 3 - 1, 0))
         out["ac"][name] = sig.sosfiltfilt(sos, x, padlen=padlen)
 
-    ir = channels.get("ir")
-    if ir is None or len(ir) < int(fs * 8):
+    if not channels or len(next(iter(channels.values()))) < int(fs * 8):
         return out
 
-    ir = ir.astype(float)
-    ac = out["ac"]["ir"]
-    dc = float(np.mean(ir))
+    # Analyse every channel, not just IR: a pulse visible on one wavelength and
+    # not the other is itself diagnostic.
+    out["channels"] = {}
+    for name, v in channels.items():
+        out["channels"][name] = _channel_metrics(
+            v.astype(float), out["ac"][name], fs, lo, hi
+        )
 
-    nperseg = int(min(len(ir), fs * 8))
-    f, pxx = sig.welch(ir - np.mean(ir), fs=fs, nperseg=nperseg)
-
-    in_band = (f >= lo) & (f <= hi)
-    # Noise floor above the cardiac band but below any mains pickup.
-    noise_band = (f >= 5.0) & (f <= min(20.0, nyq * 0.95))
-
-    out["f"], out["pxx"] = f, pxx
-    out["dc"] = dc
-    out["ac_rms"] = float(np.sqrt(np.mean(ac**2)))
-    out["pi_pct"] = out["ac_rms"] / dc * 100.0 if dc > 0 else float("nan")
-
-    if in_band.any():
-        k = int(np.argmax(pxx[in_band]))
-        out["peak_hz"] = float(f[in_band][k])
-        out["bpm"] = out["peak_hz"] * 60.0
-        peak_power = float(pxx[in_band][k])
-        if noise_band.any():
-            floor = float(np.median(pxx[noise_band]))
-            out["snr_db"] = (10.0 * np.log10(peak_power / floor)
-                             if floor > 0 else float("inf"))
+    primary = out["channels"].get("ir") or next(iter(out["channels"].values()))
+    out.update({k: primary[k] for k in
+                ("f", "pxx", "dc", "ac_rms", "pi_pct", "drift_ratio") if k in primary})
+    for k in ("peak_hz", "bpm", "prominence_db"):
+        if primary.get(k) is not None:
+            out[k] = primary[k]
     return out
+
+
+def _coupling_advice(pulse: dict) -> str:
+    """Point at the most likely cause given what the spectrum looks like."""
+    ir = pulse.get("channels", {}).get("ir", {})
+    drift = ir.get("drift_ratio", 0.0)
+    pi = ir.get("pi_pct", 0.0)
+
+    lines = []
+    if pi < 0.05:
+        lines.append(
+            "Almost no pulsatile content. A healthy DC with no AC usually means "
+            "light is reaching the photodiode WITHOUT passing through perfused "
+            "tissue — it pipes across the surface from the LEDs. Raising LED "
+            "current makes this worse, not better. Press the sensor flat against "
+            "skin and strap it."
+        )
+    if drift > 20:
+        lines.append(
+            f"Drift and motion carry {drift:.0f}x the power of the cardiac band. "
+            "Immobilise the arm and the cable before anything else."
+        )
+    lines.append(
+        "Fastest way to tell hardware from placement: try a FINGERTIP. Finger "
+        "PPG is 10-50x stronger than forearm. Clear beats there means the board, "
+        "firmware and config are fine and this is purely a forearm coupling "
+        "problem; no beats there means the fault is upstream of placement."
+    )
+    return "\n           ".join(lines)
+
+
+def _channel_metrics(x: np.ndarray, ac: np.ndarray, fs: float,
+                     lo: float, hi: float) -> dict:
+    """Per-channel pulse metrics.
+
+    The detector looks for a genuine *local peak* in the spectrum, not simply
+    the largest in-band bin. That distinction matters: a drift-dominated
+    recording has a 1/f spectrum that falls monotonically, so the in-band
+    argmax lands on the band's lower edge and -- compared against a distant
+    high-frequency noise floor -- reports a large, entirely spurious SNR. A
+    real pulse is a bump standing above its own neighbourhood, which is what
+    peak prominence measures.
+    """
+    dc = float(np.mean(x))
+    nperseg = int(min(len(x), fs * 8))
+    f, pxx = sig.welch(x - np.mean(x), fs=fs, nperseg=nperseg)
+
+    m: dict = {
+        "f": f,
+        "pxx": pxx,
+        "dc": dc,
+        "ac_rms": float(np.sqrt(np.mean(ac**2))),
+        "pi_pct": float(np.sqrt(np.mean(ac**2))) / dc * 100.0 if dc > 0 else float("nan"),
+        "peak_hz": None,
+        "bpm": None,
+        "prominence_db": None,
+    }
+
+    # How far the spectrum is dominated by sub-cardiac drift and motion.
+    drift = (f >= 0.03) & (f < lo)
+    band = (f >= lo) & (f <= hi)
+    if drift.any() and band.any():
+        d = float(np.trapezoid(pxx[drift], f[drift]))
+        b = float(np.trapezoid(pxx[band], f[band]))
+        m["drift_ratio"] = d / b if b > 0 else float("inf")
+
+    # Find peaks on the dB spectrum across the whole range, so prominence is
+    # measured against real neighbouring structure, then keep in-band ones.
+    pxx_db = 10.0 * np.log10(np.maximum(pxx, 1e-20))
+    peaks, props = sig.find_peaks(pxx_db, prominence=2.0)
+    if peaks.size:
+        keep = (f[peaks] >= lo) & (f[peaks] <= hi)
+        if keep.any():
+            cand = peaks[keep]
+            proms = props["prominences"][keep]
+            k = int(np.argmax(proms))
+            m["peak_hz"] = float(f[cand[k]])
+            m["bpm"] = m["peak_hz"] * 60.0
+            m["prominence_db"] = float(proms[k])
+    return m
 
 
 def plot_capture(idx, channels, fs, pulse, save: Path | None = None) -> None:
@@ -293,10 +434,13 @@ def plot_capture(idx, channels, fs, pulse, save: Path | None = None) -> None:
         ax.tick_params(labelbottom=False)
 
     bits = [f"band-pass {lo:g}–{hi:g} Hz ({lo * 60:.0f}–{hi * 60:.0f} bpm)"]
-    if "pi_pct" in pulse:
+    if pulse.get("pi_pct") is not None:
         bits.append(f"perfusion index {pulse['pi_pct']:.3f}% rms")
-    if "bpm" in pulse:
-        bits.append(f"dominant {pulse['bpm']:.0f} bpm")
+    if pulse.get("bpm") is not None:
+        bits.append(f"peak {pulse['bpm']:.0f} bpm "
+                    f"({pulse['prominence_db']:.1f} dB prominence)")
+    else:
+        bits.append("NO spectral peak in band")
     ax_ac.set_title("Cardiac component — each bump should be one heartbeat.  "
                     + " · ".join(bits), fontsize=8.5, loc="left",
                     color="#444", pad=3)
@@ -308,14 +452,17 @@ def plot_capture(idx, channels, fs, pulse, save: Path | None = None) -> None:
         ax_psd.semilogy(f[keep], pxx[keep], lw=0.9, color=colors.get("ir"))
         ax_psd.axvspan(lo, hi, color="#2e9e4f", alpha=0.12, lw=0,
                        label=f"cardiac band {lo:g}–{hi:g} Hz")
-        if "peak_hz" in pulse:
+        if pulse.get("peak_hz") is not None:
             ax_psd.axvline(pulse["peak_hz"], color="#0a7d2c", lw=1.2)
-            label = f"  {pulse['bpm']:.0f} bpm"
-            if "snr_db" in pulse:
-                label += f", {pulse['snr_db']:.0f} dB"
-            ax_psd.annotate(label, (pulse["peak_hz"], pxx[keep].max()),
+            ax_psd.annotate(f"  {pulse['bpm']:.0f} bpm, "
+                            f"{pulse['prominence_db']:.0f} dB prominence",
+                            (pulse["peak_hz"], pxx[keep].max()),
                             fontsize=9, color="#0a7d2c", fontweight="bold",
                             va="top")
+        else:
+            ax_psd.annotate("  no peak in band — spectrum is drift, not pulse",
+                            (lo, pxx[keep].max()), fontsize=9, color="#b00020",
+                            fontweight="bold", va="top")
         ax_psd.set_xlim(0, float(f[keep].max()))
         ax_psd.set_xlabel("frequency (Hz)", fontsize=9)
         ax_psd.set_ylabel("IR power spectral density\n[counts²/Hz]", fontsize=9)
@@ -349,6 +496,9 @@ def main() -> int:
     ap.add_argument("--auto-tune", action="store_true",
                     help="adjust LED current to bring IR DC into range")
     ap.add_argument("--no-dark", action="store_true", help="skip the DARK check")
+    ap.add_argument("--stall-timeout", type=float, default=3.0,
+                    help="declare the link stalled after this many seconds of "
+                         "silence mid-capture")
     ap.add_argument("--plot", action="store_true", help="plot the captured trace")
     ap.add_argument("--save", action="store_true",
                     help="keep the capture as a CSV in data/")
@@ -423,10 +573,34 @@ def main() -> int:
 
         # -- 4/5. Capture, rate, continuity --------------------------------
         print(f"\n  Capturing {seconds:.0f} s — keep the sensor still on the forearm.")
-        idx, t_us, channels = capture(dev, seconds)
+        idx, t_us, channels, link = capture(dev, seconds,
+                                            stall_timeout=args.stall_timeout)
 
     n = len(idx)
-    print(f"\n  Captured {n:,} samples")
+    actual_s = link["actual_s"]
+    print(f"\n  Captured {n:,} samples over {actual_s:.1f} s")
+
+    # -- Serial link health ------------------------------------------------
+    # Checked first: if the link dropped, every number below is from a partial
+    # capture and should be read in that light.
+    if link["status"] == "ok":
+        gap_note = f"longest gap between samples {link['max_gap_s'] * 1000:.0f} ms"
+        if link["max_gap_s"] > 0.5:
+            report.add(WARN, "serial link stable",
+                       f"{gap_note} — the stream hiccuped without dropping. "
+                       "Suspect a marginal cable or USB power saving.")
+        else:
+            report.add(OK, "serial link stable",
+                       f"ran the full {actual_s:.0f} s, {gap_note}")
+    else:
+        kind = {"lost": "LINK LOST", "stalled": "LINK STALLED",
+                "reset": "BOARD RESET"}[link["status"]]
+        report.add(BAD, "serial link stable",
+                   f"{kind} after {actual_s:.1f} s of {link['requested_s']:.0f} s "
+                   f"requested ({n:,} samples kept).\n           {link['reason']}")
+        print("\n  Partial capture retained — the checks below describe the "
+              f"{actual_s:.0f} s that did arrive.")
+        print(_link_advice(link["status"]))
 
     # DC window (checked on the captured run, not the tuning burst).
     if "ir" in channels:
@@ -464,7 +638,7 @@ def main() -> int:
     n_gaps, n_missing = check_continuity(idx)
     if n_gaps == 0:
         report.add(OK, "zero dropped samples",
-                   f"{n:,} consecutive indices over {seconds:.0f} s")
+                   f"{n:,} consecutive indices over {actual_s:.0f} s")
     else:
         report.add(BAD, "zero dropped samples",
                    f"{n_gaps} discontinuity/ies, {n_missing} samples missing. "
@@ -476,24 +650,38 @@ def main() -> int:
     # -- Beyond SPEC 3.5: is the sensor actually seeing blood? ------------
     # Every criterion above would pass with the photodiode staring at a wall.
     pulse = analyse_pulse(channels, fs_cfg)
-    if "snr_db" not in pulse:
-        report.add(WARN, "cardiac pulse detected", "capture too short to measure")
+    if "channels" not in pulse:
+        report.add(WARN, "cardiac pulse detected",
+                   f"capture too short to measure ({actual_s:.1f} s; needs ~8 s)")
     else:
-        detail = (f"{pulse['bpm']:.0f} bpm, perfusion index "
-                  f"{pulse['pi_pct']:.3f}% rms, peak {pulse['snr_db']:.1f} dB "
-                  f"above the 5–20 Hz noise floor")
-        plausible = 40 <= pulse["bpm"] <= 180
-        if pulse["snr_db"] >= 10.0 and plausible:
-            report.add(OK, "cardiac pulse detected", detail)
-        elif pulse["snr_db"] >= 6.0 and plausible:
+        for name, m in pulse["channels"].items():
+            bits = [f"perfusion index {m['pi_pct']:.3f}% rms"]
+            if m["bpm"] is not None:
+                bits.append(f"peak {m['bpm']:.0f} bpm, "
+                            f"{m['prominence_db']:.1f} dB prominence")
+            else:
+                bits.append("no spectral peak in the cardiac band")
+            if "drift_ratio" in m:
+                bits.append(f"drift/cardiac power {m['drift_ratio']:.0f}x")
+            print(f"           {name:>4}: " + ", ".join(bits))
+
+        m = pulse["channels"].get("ir", {})
+        prom = m.get("prominence_db")
+        bpm = m.get("bpm")
+        plausible = bpm is not None and 40 <= bpm <= 180
+        head = (f"IR {bpm:.0f} bpm at {prom:.1f} dB prominence"
+                if plausible else "no periodic cardiac component on IR")
+
+        if plausible and prom >= 6.0:
+            report.add(OK, "cardiac pulse detected", head)
+        elif plausible and prom >= 3.0:
             report.add(WARN, "cardiac pulse detected",
-                       detail + " — weak. Strap it snug rather than holding it, "
-                       "and shade it from overhead light.")
+                       head + " — weak. Press the sensor flat and strap it.")
         else:
             report.add(WARN, "cardiac pulse detected",
-                       detail + " — no convincing pulse. Everything above can "
-                       "pass with the sensor pointed at nothing, so check skin "
-                       "contact before trusting any recording.")
+                       head + ". Every check above can pass with no blood in "
+                       "the light path, so do not trust a recording yet.\n"
+                       "           " + _coupling_advice(pulse))
 
     # -- Optional artefacts ------------------------------------------------
     out_path = None

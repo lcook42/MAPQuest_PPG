@@ -23,6 +23,52 @@ _LIKELY_HINTS = ("nano esp32", "esp32", "arduino", "usb serial", "cp210", "ch340
 DEFAULT_COLUMNS = ["idx", "t_us", "ir", "red"]
 
 
+class LinkError(RuntimeError):
+    """A serial link problem during a capture.
+
+    Carries ``samples`` (how many arrived before the failure) so a caller can
+    salvage the partial capture instead of discarding it.
+    """
+
+    def __init__(self, message: str, samples: int = 0) -> None:
+        super().__init__(message)
+        self.samples = samples
+
+
+class LinkLost(LinkError):
+    """The port went away: unplugged, board reset, or USB re-enumeration.
+
+    Common on the ESP32-S3's native USB CDC, which can re-enumerate on a power
+    glitch or a marginal cable — often reappearing on a different COM port.
+    """
+
+
+class LinkStalled(LinkError):
+    """The port is still open but the firmware stopped sending.
+
+    Distinct from LinkLost: the OS still has the device, so this points at the
+    sketch (crash, watchdog, blocked loop) or a USB CDC stall rather than at
+    the cable.
+    """
+
+
+def describe_ports() -> str:
+    """Current serial ports, for diagnosing a link that just died."""
+    ports = list(list_ports.comports())
+    if not ports:
+        return "    (no serial ports currently present)"
+    return "\n".join(
+        f"    {p.device} — {p.description}"
+        + (f" [VID:PID {p.vid:04X}:{p.pid:04X}]" if p.vid and p.pid else "")
+        for p in ports
+    )
+
+
+def port_present(device: str) -> bool:
+    """Is this port still enumerated by the OS?"""
+    return any(p.device == device for p in list_ports.comports())
+
+
 @dataclass
 class Meta:
     """Metadata parsed from ``#`` lines."""
@@ -118,6 +164,8 @@ class Device:
         self.settle = settle
         self.meta = Meta()
         self.errors: list[str] = []
+        self.rx_count = 0
+        self.max_gap_s = 0.0
         self._ser: serial.Serial | None = None
 
     def __enter__(self) -> "Device":
@@ -134,9 +182,12 @@ class Device:
         try:
             self.command("STOP")
             self._ser.flush()
-        except serial.SerialException:
+        except (serial.SerialException, OSError):
             pass
-        self._ser.close()
+        try:
+            self._ser.close()
+        except (serial.SerialException, OSError):
+            pass
         self._ser = None
 
     # -- primitives --------------------------------------------------------
@@ -147,7 +198,8 @@ class Device:
         self._ser.flush()
 
     def readline(self) -> str:
-        assert self._ser is not None
+        if self._ser is None:
+            raise LinkLost("serial port is closed", samples=self.rx_count)
         return self._ser.readline().decode("utf-8", errors="replace").strip()
 
     def stop(self, settle: float = 0.3) -> None:
@@ -158,10 +210,16 @@ class Device:
         streaming. Clearing both is the difference between the next command
         working and it appearing to hang.
         """
-        assert self._ser is not None
-        self.command("STOP")
-        self.drain(settle)
-        self._ser.reset_input_buffer()
+        if self._ser is None:
+            return
+        # Best-effort: if the link already died, failing to stop it is not a
+        # new problem and must not mask the original error.
+        try:
+            self.command("STOP")
+            self.drain(settle)
+            self._ser.reset_input_buffer()
+        except (serial.SerialException, OSError):
+            pass
 
     def drain(self, seconds: float) -> list[str]:
         """Read whatever arrives for a while, absorbing metadata."""
@@ -206,26 +264,82 @@ class Device:
         self.command(f"{verb} {int(value)}")
         self.drain(0.3)
 
-    def stream(self) -> Iterator[tuple[list[int], str]]:
-        """Send START and yield ``(fields, raw_line)`` for each S line."""
+    def stream(self, stall_timeout: float = 3.0,
+               start_timeout: float = 5.0) -> Iterator[tuple[list[int], str]]:
+        """Send START and yield ``(fields, raw_line)`` for each S line.
+
+        Raises LinkLost if the port disappears and LinkStalled if it stays
+        open but goes quiet for ``stall_timeout``. Without that second check a
+        silent board makes this loop spin on empty reads forever, which looks
+        like a hang rather than a fault.
+        """
         self.command("START")
         started = False
-        deadline = time.time() + 5.0
+        now = time.time()
+        deadline = now + start_timeout
+        last_rx = now
+        self.rx_count = 0
+        self.max_gap_s = 0.0
 
         while True:
-            line = self.readline()
-            if not line:
-                if not started and time.time() > deadline:
-                    raise RuntimeError(
-                        "Timed out waiting for stream. Is the sketch uploaded?"
+            try:
+                line = self.readline()
+            except (serial.SerialException, OSError) as exc:
+                still_there = port_present(self.port)
+                detail = (
+                    f"serial link lost after {self.rx_count:,} samples: {exc}"
+                )
+                if not still_there:
+                    detail += (
+                        f"\n  {self.port} is no longer enumerated — the board "
+                        "disconnected or re-enumerated."
+                        f"\n  Ports now present:\n{describe_ports()}"
                     )
+                raise LinkLost(detail, samples=self.rx_count) from exc
+
+            now = time.time()
+            if not line:
+                if not started:
+                    if now > deadline:
+                        raise LinkStalled(
+                            "Timed out waiting for the stream to start. Is the "
+                            "sketch uploaded, and is anything else holding the "
+                            "port (Arduino IDE Serial Monitor)?",
+                            samples=0,
+                        )
+                    continue
+                if now - last_rx > stall_timeout:
+                    detail = (
+                        f"no data for {now - last_rx:.1f} s after "
+                        f"{self.rx_count:,} samples"
+                    )
+                    if port_present(self.port):
+                        detail += (
+                            f"\n  {self.port} is still present, so the cable is "
+                            "probably fine — suspect a board reset or a stalled "
+                            "USB CDC. Press the board's reset button and retry."
+                        )
+                    else:
+                        detail += (
+                            f"\n  {self.port} has vanished:\n{describe_ports()}"
+                        )
+                    raise LinkStalled(detail, samples=self.rx_count)
                 continue
+
+            gap = now - last_rx
+            last_rx = now
             if line.startswith("S,"):
                 started = True
                 try:
-                    yield [int(v) for v in line[2:].split(",")], line
+                    fields = [int(v) for v in line[2:].split(",")]
                 except ValueError:
                     continue
+                self.rx_count += 1
+                # Samples arrive in FIFO bursts, so a gap is only meaningful
+                # once the stream is running.
+                if self.rx_count > 1:
+                    self.max_gap_s = max(self.max_gap_s, gap)
+                yield fields, line
             else:
                 self._absorb(line)
 
