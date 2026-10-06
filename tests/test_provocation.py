@@ -178,3 +178,50 @@ def test_phase_duration_override(seconds):
     ir[ph == 3] -= 480
     r = pv.analyse({"ir": ir, "red": ir * 1.2}, ph, proto, FS)
     assert r.verdict == "responds"
+
+
+def test_csv_roundtrip(tmp_path):
+    """A saved capture must reanalyse to the same verdict."""
+    ch, ph, proto = build(600.0)
+    keys = [p[0] for p in proto]
+    csv = tmp_path / "p.csv"
+    with csv.open("w") as fh:
+        fh.write("# source=provocation\n# fs=100.00\n# site=wrist\n")
+        fh.write("# ir_amp=42 red_amp=99\n")
+        fh.write("# dark_ir=11\n# dark_red=14\n")
+        fh.write(f"# phases={','.join(keys)}\n")
+        fh.write("idx,phase,ir,red\n")
+        for i in range(len(ph)):
+            fh.write(f"{i},{keys[ph[i]]},{ch['ir'][i]:.0f},{ch['red'][i]:.0f}\n")
+
+    channels, phase_of, protocol, meta = pv.load_csv(csv)
+    assert meta["_fs"] == 100.0
+    assert meta["_dark"] == {"ir": 11.0, "red": 14.0}
+    assert meta["ir_amp"] == "42"          # LED current must survive the trip
+    assert set(channels) == {"ir", "red"}
+    assert len(phase_of) == len(ph)
+
+    r = pv.analyse(channels, phase_of, protocol, meta["_fs"], dark=meta["_dark"])
+    assert r.verdict == "responds"
+
+
+def test_load_csv_rebuilds_phase_durations(tmp_path):
+    """Durations come from the data, so --phase-seconds runs reanalyse too."""
+    proto = [(k, 5.0, lbl, rest) for k, _d, lbl, rest in pv.DEFAULT_PROTOCOL]
+    keys = [p[0] for p in proto]
+    n_each = 500
+    csv = tmp_path / "short.csv"
+    with csv.open("w") as fh:
+        fh.write("# fs=100.00\n")
+        fh.write(f"# phases={','.join(keys)}\n")
+        fh.write("idx,phase,ir\n")
+        i = 0
+        for k in keys:
+            for _ in range(n_each):
+                fh.write(f"{i},{k},109000\n")
+                i += 1
+    _ch, phase_of, protocol, _meta = pv.load_csv(csv)
+    assert len(protocol) == len(keys)
+    for _k, dur, _l, _r in protocol:
+        assert abs(dur - 5.0) < 1e-6
+    assert (phase_of == 0).sum() == n_each

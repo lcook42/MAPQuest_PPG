@@ -484,6 +484,30 @@ def plot_capture(idx, channels, fs, pulse, save: Path | None = None) -> None:
     plt.show()
 
 
+def run_reanalyse(args) -> int:
+    """Re-run the provocation analysis on a saved CSV, no hardware needed."""
+    channels, phase_of, protocol, meta = provocation.load_csv(args.reanalyse)
+    fs = meta["_fs"]
+    site = meta.get("site", args.site)
+
+    print(f"File    : {args.reanalyse}")
+    print(f"Recorded: {meta.get('recorded_at', 'unknown')}")
+    print(f"Site    : {site}")
+    amps = {k: meta[k] for k in ("ir_amp", "red_amp") if k in meta}
+    print(f"LED     : {amps or 'not recorded (pre-0.3 capture)'}")
+    print(f"Samples : {len(phase_of):,} @ {fs:g} Hz "
+          f"({len(phase_of) / fs:.0f} s)")
+
+    r = provocation.analyse(channels, phase_of, protocol, fs,
+                            dark=meta["_dark"])
+    print(provocation.format_result(r, site=site))
+
+    if args.plot or args.save:
+        png = Path(args.reanalyse).with_suffix(".reanalysis.png")
+        provocation.plot(r, site=site, save=png, show=args.plot)
+    return 0 if r.verdict == "responds" else 1
+
+
 def run_provocation_mode(dev: Device, args, report: Report) -> int:
     """Arm-raise blood-volume response test (see host/provocation.py)."""
     protocol = provocation.DEFAULT_PROTOCOL
@@ -531,8 +555,14 @@ def run_provocation_mode(dev: Device, args, report: Report) -> int:
             keys = [p[0] for p in protocol]
             with base.with_suffix(".csv").open("w") as fh:
                 fh.write("# source=provocation\n")
-                fh.write(f"# fs={dev.meta.fs:.2f}\n")
+                fh.write(f"# recorded_at="
+                         f"{datetime.now().isoformat(timespec='seconds')}\n")
                 fh.write(f"# site={args.site}\n")
+                # Mirror the full firmware header. Without LED amplitudes a
+                # recording cannot be reproduced or compared against another
+                # run, and LED current is the first thing worth varying.
+                for k, v in dev.meta.raw.items():
+                    fh.write(f"# {k}={v}\n")
                 for k, v in dev.meta.dark.items():
                     fh.write(f"# dark_{k}={v:.0f}\n")
                 fh.write(f"# phases={','.join(keys)}\n")
@@ -560,6 +590,9 @@ def main() -> int:
     ap.add_argument("--auto-tune", action="store_true",
                     help="adjust LED current to bring IR DC into range")
     ap.add_argument("--no-dark", action="store_true", help="skip the DARK check")
+    ap.add_argument("--reanalyse", type=Path, metavar="CSV",
+                    help="re-run the provocation analysis on a saved capture "
+                         "instead of talking to the board")
     ap.add_argument("--provocation", action="store_true",
                     help="run the arm-raise blood-volume response test instead "
                          "of the plain capture")
@@ -575,6 +608,9 @@ def main() -> int:
     ap.add_argument("--save", action="store_true",
                     help="keep the capture as a CSV in data/")
     args = ap.parse_args()
+
+    if args.reanalyse:
+        return run_reanalyse(args)
 
     seconds = 300.0 if args.full else args.seconds
     report = Report()

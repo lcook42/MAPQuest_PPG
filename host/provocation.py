@@ -44,6 +44,65 @@ DEFAULT_PROTOCOL: list[tuple[str, float, str, bool]] = [
 STEADY_FRACTION = 0.5
 
 
+def load_csv(path):
+    """Load a provocation recording written by bench_check --save.
+
+    Returns ``(channels, phase_of, protocol, meta)`` ready for ``analyse``.
+    """
+    from pathlib import Path
+
+    path = Path(path)
+    meta: dict[str, str] = {}
+    cols: list[str] | None = None
+    rows: list[list[str]] = []
+
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            # The firmware packs several key=value pairs onto one line, e.g.
+            # "# ir_amp=42 red_amp=99", so split on whitespace first. This
+            # matches Meta.apply() in mapquest/io.py.
+            for token in line.lstrip("# ").split():
+                if "=" in token:
+                    key, _, val = token.partition("=")
+                    meta[key.strip()] = val.strip()
+            continue
+        if cols is None:
+            cols = [c.strip() for c in line.split(",")]
+            continue
+        parts = line.split(",")
+        if len(parts) == len(cols):
+            rows.append(parts)
+
+    if cols is None or not rows:
+        raise ValueError(f"No samples found in {path}")
+
+    keys = meta.get("phases", "").split(",")
+    i_phase = cols.index("phase")
+    phase_of = np.array([keys.index(r[i_phase]) for r in rows])
+
+    chan_names = [c for c in cols if c in ("ir", "red", "green")]
+    channels = {c: np.array([float(r[cols.index(c)]) for r in rows])
+                for c in chan_names}
+
+    # Rebuild the protocol from the phase keys, taking durations from the data
+    # so a run made with --phase-seconds reanalyses correctly.
+    fs = float(meta.get("fs", 100.0))
+    by_key = {k: (d, lbl, rest) for k, d, lbl, rest in DEFAULT_PROTOCOL}
+    protocol = []
+    for i, k in enumerate(keys):
+        n = int((phase_of == i).sum())
+        _d, lbl, rest = by_key.get(k, (0.0, k, k.startswith("rest")))
+        protocol.append((k, n / fs, lbl, rest))
+
+    meta["_fs"] = fs
+    meta["_dark"] = {c: float(meta[f"dark_{c}"])
+                     for c in chan_names if f"dark_{c}" in meta}
+    return channels, phase_of, protocol, meta
+
+
 @dataclass
 class PhaseStats:
     key: str
