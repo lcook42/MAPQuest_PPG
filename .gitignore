@@ -1,0 +1,14 @@
+# Recordings — regenerate rather than commit
+data/*.csv
+!data/.gitkeep
+
+# Build output
+firmware/**/build/
+*.elf
+*.bin
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
