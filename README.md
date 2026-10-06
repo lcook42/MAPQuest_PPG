@@ -1,138 +1,182 @@
 # MAPQuest
 
-PPG prototype: measure pulsatile blood volume change with a MAX30101, stream raw samples over USB
-to a host, and do all the signal processing in Python.
+Return-to-flow blood pressure prototype. An upper-arm cuff is bled down while a MAX30101 watches
+the forearm; when cuff pressure drops below arterial pressure, blood flows in and cannot drain, the
+forearm fills, and reflected light falls. **MAP is the cuff pressure at the onset of sustained
+filling.**
 
-The firmware is deliberately dumb — it configures the sensor and prints raw ADC counts. Every
-interpretive step happens in Python, where each stage of the derivation is retained and plotted:
-
-**raw → DC baseline → AC → normalised AC/DC → band-passed → dV/dt → d²V/dt²**
+Full requirements: [`docs/SPEC.md`](docs/SPEC.md). Channel choice: [`docs/led-selection-report.md`](docs/led-selection-report.md).
 
 ![Example output](docs/example-output.png)
+
+*Synthetic recording, ground-truth MAP 90 mmHg, recovered at 89.9 mmHg.*
+
+## Status
+
+| Milestone | State |
+|---|---|
+| M0 Toolchain | firmware compiles for `arduino:esp32:nano_nora` |
+| M1 PPG streaming | code complete; **run `bench_check.py` to close it out** |
+| M2 Pressure | code written behind `PRESSURE_ENABLED`; **HX710B not yet owned** |
+| M3 Logger | complete; pressure path untested |
+| M4 Analysis | complete, validated against synthetic ground truth |
+| M5 Tests | **37/37 passing** — SPEC §6 analysis criteria + protocol/mock-firmware |
+| M6 Bench trials | not started |
+
+Nothing here has touched real hardware yet. The analysis numbers come from synthetic data, and the
+serial protocol is validated against a mock firmware (`tests/test_protocol.py`) rather than the
+board. `bench_check.py` is the bridge: it runs the SPEC §3.5 acceptance criteria on real hardware.
 
 ## Hardware
 
 | | |
 |---|---|
-| MCU | Arduino Nano ESP32 (official, ESP32-S3) |
-| Sensor | SparkFun SEN-16474 — Photodetector Breakout MAX30101 (Qwiic) |
+| MCU | Arduino Nano ESP32 (ESP32-S3) |
+| PPG | SparkFun SEN-16474 — MAX30101 Qwiic breakout |
+| Pressure | MPS20N0040D + HX710B *(not yet fitted)* |
 
-### Wiring
+### Wiring (SPEC 2.2)
 
-| Breakout | Nano ESP32 |
-|---|---|
-| `3.3V` | `3V3` — **not 5 V** |
-| `GND` | `GND` |
-| `SDA` | `A4` |
-| `SCL` | `A5` |
-| `INT` | not connected |
+| Nano ESP32 | MAX30101 | | Nano ESP32 | HX710B |
+|---|---|---|---|---|
+| `3V3` | `3V3` | | `3V3` | `VCC` |
+| `GND` | `GND` | | `GND` | `GND` |
+| `A4` | `SDA` | | `D3` | `OUT` |
+| `A5` | `SCL` | | `D2` | `SCK` |
 
-Both sides are 3.3 V logic, so no level shifting. The breakout's onboard 2.2 kΩ pullups are the
-only ones on the bus.
+3.3 V logic throughout — **do not power the HX710B from 5 V**, it would drive 5 V into an ESP32
+GPIO. Calibrate at 3.3 V and don't reuse constants measured at 5 V.
 
 ## Quick start
 
-### 1. Flash the firmware
+### 1. Flash
 
 Open `firmware/mapquest_ppg/mapquest_ppg.ino` in Arduino IDE 2.x, select **Arduino Nano ESP32**,
-and upload. **No libraries to install** — the MAX30101 driver is inline in the sketch.
+upload. **No libraries to install** — the MAX30101 driver is inline.
 
-Verify it works from the IDE's Serial Monitor at 921600 baud. You should see:
+At 115200 baud you should see a `#` metadata block then:
 
 ```
-# ready — send 's' to start streaming, '?' for config
+# ready — send START to stream, INFO for settings
 ```
 
-Send `s` to start streaming. If you instead see an `# ERROR:` line, the wiring is wrong.
-
-### 2. Set up Python
+### 2. Python
 
 ```bash
-pip install -r python/requirements.txt
+pip install -r host/requirements.txt
 ```
 
-### 3. Try it without hardware
-
-Verify the processing half works before trusting a real recording:
+### 3. Verify the analysis without hardware
 
 ```bash
-cd python && python simulate.py && python analyze.py ../data/sim_*.csv
+cd host
+python synth.py --map 90 --out ../data/s90.csv
+python analyze.py ../data/s90.csv
 ```
 
-### 4. Place the sensor and tune
+Should report onset within ±1 mmHg of 90. Then run the acceptance suite:
 
 ```bash
-cd python && python live_plot.py
+python -m pytest tests/ -v
 ```
 
-Watch the live scope and adjust until:
+### 4. Check the hardware
 
-- **DC level sits roughly 30–60 % of full scale** (≈ 80 000–160 000 counts). Too low wastes ADC
-  range; too high clips. Tune with `g<n>` (green) and `i<n>` (IR) over a serial monitor, where
-  `n` is 0–255 in 0.2 mA steps.
-- **The band-passed panel shows a clean, repeating pulse.**
-
-Secure the sensor to the fingertip with a rubber band — holding it by hand varies contact pressure
-and swamps the signal. Shield it from overhead light.
-
-### 5. Record and analyse
+With the Nano and MAX30101 wired and flashed — no cuff or pressure sensor needed:
 
 ```bash
-cd python
-python record.py --seconds 60 --label rest
-python analyze.py ../data/ppg_<timestamp>_rest.csv
+cd host
+python bench_check.py --auto-tune --plot
 ```
 
-`analyze.py` prints per-channel quality metrics and renders all seven derivation stages.
+This runs the SPEC §3.5 acceptance criteria as pass/fail: sensor found at 0x57, DARK offsets
+≤128 counts, IR DC inside 105k–157k, output rate within 1% of 100 Hz, and zero dropped samples.
+`--auto-tune` sets the LED currents for you; `--full` runs the 5-minute drop test that is the real
+M1 gate.
+
+### 5. Record
+
+```bash
+cd host
+python logger.py --calibrate                      # once, when the HX710B is fitted
+python logger.py --subject T01 --trial 1 --note "left arm, seated"
+python analyze.py ../data/<date>_T01_1.csv
+```
+
+The logger sends `INFO`, then `DARK`, then `START`, and writes a self-describing CSV. Ctrl-C sends
+`STOP` and closes cleanly.
 
 ## Layout
 
 ```
-firmware/mapquest_ppg/   Arduino sketch — self-contained MAX30101 driver + CSV streamer
-python/
+firmware/mapquest_ppg/
+  mapquest_ppg.ino     self-contained MAX30101 driver + SPEC 3.4 protocol
+  config.h             all tunables; echoed into every recording header
+host/
   mapquest/
-    serial_io.py         port discovery, header parsing, CSV load
-    pipeline.py          the derivation chain (raw → d²V/dt²) + quality metrics
-  record.py              stream to timestamped CSV
-  live_plot.py           live scope of every stage
-  analyze.py             offline analysis and the stage plot
-  simulate.py            synthetic recordings for testing without hardware
-data/                    recordings (gitignored)
+    io.py              serial protocol, metadata parsing, CSV load, calibration
+    pipeline.py        raw -> dOD -> dV*L -> low-pass -> dV/dt -> onset
+  bench_check.py       SPEC 3.5 hardware acceptance checks, LED auto-tune
+  logger.py            recording + two-point pressure calibration
+  analyze.py           offline analysis, figure, results.csv row
+  synth.py             synthetic recordings with known ground truth
+tests/
+  test_pipeline.py     SPEC section 6 analysis acceptance tests
+  test_protocol.py     serial protocol against a mock firmware
+data/                  recordings (gitignored)
 docs/
-  design.md              architecture, sensor config, wiring, open questions
-  led-selection-report.md  why Green + IR, with sources
+  SPEC.md              the requirements
+  led-selection-report.md  why Red + IR, with sources
 ```
 
-## Current configuration
+## Configuration
 
-Green (SLOT1) + IR (SLOT2) in Multi-LED mode, 411 µs pulse width (18-bit), 400 sps internal with
-2× hardware averaging → **200 Hz output per channel**.
+Red + IR in SpO2 mode, 411 µs pulse width (18-bit), 400 sps internal with 4× hardware averaging →
+**100 Hz output per channel**. Everything tunable is in `firmware/mapquest_ppg/config.h`.
 
-Green is expected to give the stronger signal in reflectance mode; IR is recorded alongside it so
-the choice can be settled on measured evidence rather than assumed. See
-[`docs/led-selection-report.md`](docs/led-selection-report.md) for the reasoning and
-[§6](docs/led-selection-report.md) for how to decide.
+Green is deliberately unused — the two-wavelength Beer–Lambert solve needs the 660/880 nm pair, and
+green's 0.3–0.8 mm penetration would miss the forearm filling anyway. See the LED report.
 
-**The 200 Hz sample rate is provisional** and expected to change — see
-[`docs/design.md` §3](docs/design.md) for the tradeoffs and the one-line change to adjust it.
+## Two things to know before trusting a number
 
-## Commands (serial)
+**Onset method.** `analyze.py` defaults to `--onset-method intersect`, which is *not* SPEC §5.1
+step 10 verbatim. The spec's threshold-crossing method reads **~2.6 mmHg high**, because the 0.3 Hz
+zero-phase low-pass and the 2 s Savitzky–Golay window are both symmetric kernels and smear the
+ramp's corner backwards in time — so the derivative starts climbing before filling actually began.
+That misses the spec's own ±1 mmHg acceptance criterion. The `intersect` method fits the
+established ramp and extrapolates back to the occlusion baseline, which is unaffected by corner
+smearing; it lands within ±0.2 mmHg on synthetic data. Both are always computed and both are
+printed. Pass `--onset-method threshold` for literal spec behaviour.
 
-| Key | Action |
+**Healthy subjects read near systolic, not MAP.** Teammates have a pulse, so filling begins when
+the cuff drops below *systolic*. Bench trials validate the signal chain and detection, not MAP
+accuracy — that needs a non-pulsatile phantom or an LVAD patient. The analysis prints a
+pulsatility RMS and flags this automatically.
+
+## Serial protocol (SPEC 3.4)
+
+| Command | Action |
 |---|---|
-| `s` | start / stop streaming |
-| `?` | print config header |
-| `t` | one-shot die temperature |
-| `g<n>` | set green LED current, `n` = 0–255 (×0.2 mA) |
-| `i<n>` | set IR LED current, `n` = 0–255 |
-| `r` | reset sensor and reapply config |
+| `START` | begin streaming `S` lines, reset sample index |
+| `STOP` | stop |
+| `INFO` | print all settings as `#` metadata |
+| `DARK` | LEDs off, average 200 samples, report dark offsets |
+| `IRAMP <0-255>` | set IR LED amplitude (refused while streaming) |
+| `REDAMP <0-255>` | set red LED amplitude |
+| `TEMP` | one-shot die temperature |
+| `R` | re-probe and reconfigure the sensor (not in SPEC §3.4; added so a wiring fix needs no reflash) |
 
-## Scope
+Data lines: `S,<idx>,<t_us>,<ir>,<red>[,<p_idx>,<p_raw>]`. Errors: `E,<message>`.
 
-This is a v0 prototype aimed at a clean, trustworthy blood-volume waveform and its derivatives.
-MAP/BP estimation, SpO2, and HRV are explicitly out of scope for now.
+`INFO` reports `sensor_ok=0|1` alongside the part id it **actually read**. An earlier version
+echoed the expected `0x15` constant, so a disconnected sensor reported as present; `START` is now
+refused when `sensor_ok=0` rather than streaming a plausible-looking flat line.
 
-One caveat worth keeping in view: what a reflectance PPG records is a robust *correlate* of
-pulsatile blood volume, not a calibrated volume measurement — and there is evidence that both green
-and IR may be tracking dermal deformation driven by transmural arterial pressure rather than blood
-volume directly. See the LED selection report §4.
+Use `idx / fs` as the timebase, not `t_us` — `t_us` is the host read time of a FIFO burst, so
+several samples in one burst share it. It is there for jitter diagnostics only.
+
+## Safety
+
+Bench experiment, **not a medical device**. Occlusion ≤ 2 min per trial, 2–3 min rest between.
+Stop immediately for pain, numbness or tingling. Exclude anyone on anticoagulants or with vascular
+disease or fragile skin. Full protocol in SPEC §8.

@@ -1,5 +1,6 @@
 # Recordings — regenerate rather than commit
 data/*.csv
+data/*.png
 !data/.gitkeep
 
 # Build output
