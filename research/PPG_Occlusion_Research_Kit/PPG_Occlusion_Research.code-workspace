@@ -1,0 +1,7 @@
+{
+  "folders": [
+    {"name": "PPG pressure firmware", "path": "firmware"},
+    {"name": "Guide and desktop tools", "path": "."}
+  ],
+  "extensions": {"recommendations": ["platformio.platformio-ide", "ms-python.python"]}
+}

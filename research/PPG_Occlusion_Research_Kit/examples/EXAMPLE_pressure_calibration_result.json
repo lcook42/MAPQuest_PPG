@@ -1,0 +1,11 @@
+{
+  "gain": 1.0204081632653061,
+  "command": "GAIN 1.02040816",
+  "independent_residuals_mmHg": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "max_absolute_independent_residual_mmHg": 0.0,
+  "note": "Instrument gain only. Does not establish total uncertainty or accurate MAP."
+}

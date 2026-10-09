@@ -1,0 +1,75 @@
+{
+  "statement": "New XIAO and passive-kit source files are byte-identical to the projects created in this chat before the upstream repository was cloned. No code from the teammate repository was imported into these implementations. Standard Arduino, ESP32 and third-party sensor libraries remain dependencies.",
+  "files": [
+    {
+      "path": "xiao/tools/serial_plot.py",
+      "sha256": "1b9c4483e5ca90269c0dbe33c3989d2818450142e4a31c96a4819e61b64eb271",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "xiao/tools/test_serial_plot.py",
+      "sha256": "71563da4a25416541593064b293546cf6745ebe6bf21cf27180ef967a43ced99",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "xiao/MAX30101_Guided_MAP/src/main.cpp",
+      "sha256": "a3b730462da0541c119962e83b2c39e7640964034011a86bec9ab8b3133b2797",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "xiao/MAX30101_Guided_MAP/arduino/MAX30101_Guided_MAP/MAX30101_Guided_MAP.ino",
+      "sha256": "a3b730462da0541c119962e83b2c39e7640964034011a86bec9ab8b3133b2797",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "xiao/MAX30101_NoReference/src/main.cpp",
+      "sha256": "d129a5cb222107b5b9e7010f7b5efcea69dba29aa4a5bdc1f21e04c5e073d76e",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "xiao/MAX30101_NoReference/arduino/MAX30101_NoReference/MAX30101_NoReference.ino",
+      "sha256": "d129a5cb222107b5b9e7010f7b5efcea69dba29aa4a5bdc1f21e04c5e073d76e",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "xiao/original/MAX30101_Guided_MAP/MAX30101_Guided_MAP.ino",
+      "sha256": "c5c58246c6dc93e90ce8efa073f191006ec52cecc4a95a61c7071b6e4a139ce3",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "research/PPG_Occlusion_Research_Kit/tests/test_tools.py",
+      "sha256": "2901b51d442447d2112d5ef64b1863157b06645499caa14ab397f1b3dd1103db",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "research/PPG_Occlusion_Research_Kit/tools/acquire.py",
+      "sha256": "6cf6954f4ae07436ab403142ca9b30f5d73ea2268ec07a6b57b36ad7d6ae89af",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "research/PPG_Occlusion_Research_Kit/tools/analyze.py",
+      "sha256": "7e3f3b6843079baf98768e3cbd14e58b4754e41f79037dee1cc0316e9954e685",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "research/PPG_Occlusion_Research_Kit/tools/calibrate.py",
+      "sha256": "435ff4328ebacceb4da56be0749135c597dc0b3375531e34c37f806c91a505a8",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "research/PPG_Occlusion_Research_Kit/tools/records.py",
+      "sha256": "1c10c23242e617e1fdd5d6c9edc3e202932a778f48b7a9760e15e814fe4f1e4f",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "research/PPG_Occlusion_Research_Kit/arduino/Passive_PPG_Pressure/Passive_PPG_Pressure.ino",
+      "sha256": "781e4488120349692aeb0fb3c6f363dc6095f36d34821126002db6c9dc0535fa",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    },
+    {
+      "path": "research/PPG_Occlusion_Research_Kit/firmware/src/main.cpp",
+      "sha256": "781e4488120349692aeb0fb3c6f363dc6095f36d34821126002db6c9dc0535fa",
+      "origin": "Earlier user-supplied/generated project; unchanged during fork preparation"
+    }
+  ]
+}

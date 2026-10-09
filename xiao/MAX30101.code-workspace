@@ -1,0 +1,9 @@
+{
+  "folders": [
+    { "name": "Guided MAP (reference calibration)", "path": "MAX30101_Guided_MAP" },
+    { "name": "No-reference (experimental relative)", "path": "MAX30101_NoReference" }
+  ],
+  "extensions": {
+    "recommendations": ["platformio.platformio-ide"]
+  }
+}

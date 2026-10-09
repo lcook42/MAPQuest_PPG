@@ -1,0 +1,6 @@
+Operator markers: nearby PNEUMATIC pressure only; NOT MAP.
+Host/operator reaction and Doppler delays are not corrected.
+Flagged rows: 0 / 2503
+SIMULATED_START: t=0.000s; 0.00 mmHg pneumatic
+SIMULATED_MARK: t=14.000s; 113.26 mmHg pneumatic
+SIMULATED_STOP: t=20.000s; no valid bracketing pressure

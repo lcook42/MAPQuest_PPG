@@ -13,3 +13,10 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+
+# XIAO additions / generated acquisition artifacts
+**/.pio/
+**/.vscode/
+*.serial.log
+xiao/tools/*.csv
+research/PPG_Occlusion_Research_Kit/recordings/

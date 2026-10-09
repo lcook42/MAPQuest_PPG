@@ -1,0 +1,15 @@
+{
+  "note": "EXAMPLE VALUES ONLY. Replace with actual stable bench readings taken with GAIN 1 after atmospheric zeroing. Independent checks must be newly measured, not reused fit points.",
+  "fit_points": [
+    {"measured_mmHg": 0, "reference_mmHg": 0},
+    {"measured_mmHg": 49, "reference_mmHg": 50},
+    {"measured_mmHg": 98, "reference_mmHg": 100},
+    {"measured_mmHg": 147, "reference_mmHg": 150},
+    {"measured_mmHg": 196, "reference_mmHg": 200}
+  ],
+  "independent_check_points": [
+    {"measured_mmHg": 73.5, "reference_mmHg": 75},
+    {"measured_mmHg": 122.5, "reference_mmHg": 125},
+    {"measured_mmHg": 171.5, "reference_mmHg": 175}
+  ]
+}

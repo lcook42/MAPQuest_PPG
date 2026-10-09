@@ -1,0 +1,2 @@
+SHA256 of supplied original Arduino sketch bytes:
+c5c58246c6dc93e90ce8efa073f191006ec52cecc4a95a61c7071b6e4a139ce3

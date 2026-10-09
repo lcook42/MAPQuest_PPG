@@ -1,9 +1,20 @@
+> **Fork additions for XIAO ESP32-S3:** This fork provides [two separate XIAO versions](xiao/README.md) plus a [passive PPG/pressure acquisition kit and build guide](research/PPG_Occlusion_Research_Kit/README.md).
+>
+> - **With reference MAP:** `xiao/MAX30101_Guided_MAP` retains the supplied guided calibration/model workflow and continuous plot commands. Requires external reference MAP inputs; predictions are research outputs, not validated clinical MAP.
+> - **Without reference MAP:** `xiao/MAX30101_NoReference` guides optical baseline capture and reports relative, dimensionless changes. It does not estimate absolute MAP or output pressure in mmHg.
+> - **Pressure/occlusion research:** `research/PPG_Occlusion_Research_Kit` records measured pneumatic pressure and raw PPG with markers. Pressure at a flow marker is not automatically MAP. No automatic occlusion or MAP estimator is included.
+>
+> Open [MAPQuest_XIAO.code-workspace](MAPQuest_XIAO.code-workspace) in VS Code, then select the desired project in PlatformIO. The upstream Nano ESP32/HX710B firmware and host pipeline remain separately available. Protocols and wiring differ; do not interchange their host tools.
+>
+> **Source independence:** The new implementations are unchanged copies of our earlier code and the user-supplied sketch. They do not reuse your teammate's implementation. The original project remains separately below and in fork history.
+>
+> See [integration and validation notes](docs/xiao-integration.md). No hardware or clinical validation is claimed by these additions.
+
 # MAPQuest
 
 Return-to-flow blood pressure prototype. An upper-arm cuff is bled down while a MAX30101 watches
 the forearm; when cuff pressure drops below arterial pressure, blood flows in and cannot drain, the
-forearm fills, and reflected light falls. **MAP is the cuff pressure at the onset of sustained
-filling.**
+forearm fills, and reflected light falls. **The research hypothesis associates cuff pressure at sustained-filling onset with arterial pressure; its relationship to MAP has not been established by patient validation.**
 
 Full requirements: [`docs/SPEC.md`](docs/SPEC.md). Channel choice: [`docs/led-selection-report.md`](docs/led-selection-report.md).
 

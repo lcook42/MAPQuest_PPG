@@ -1,0 +1,3 @@
+# Preserve exact bytes of earlier generated/user-supplied source and provenance.
+xiao/** -text
+research/** -text

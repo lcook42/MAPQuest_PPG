@@ -1,0 +1,9 @@
+{
+  "folders": [
+    {"name": "With reference MAP", "path": "xiao/MAX30101_Guided_MAP"},
+    {"name": "No-reference relative optics", "path": "xiao/MAX30101_NoReference"},
+    {"name": "Passive pressure + PPG", "path": "research/PPG_Occlusion_Research_Kit/firmware"},
+    {"name": "Guides and host tools", "path": "."}
+  ],
+  "extensions": {"recommendations": ["platformio.platformio-ide", "ms-python.python"]}
+}
