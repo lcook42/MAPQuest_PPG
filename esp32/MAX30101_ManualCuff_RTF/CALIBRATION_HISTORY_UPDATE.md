@@ -26,3 +26,9 @@ After fully releasing the cuff and closing the old monitor process, run from thi
 Use the actual USB port if different. The existing process must release port 8766 first. Connect wirelessly in the dashboard opens the Wi-Fi setup flow.
 
 Historical companion documents may describe older thresholds. This update and the latest concise notes describe the current host revision. No improvement in physiological measurement accuracy is established by the software tests.
+
+## Exact stream-fault evidence (host-capture1)
+
+The research audit found that replacement decoding discarded the original invalid byte values. The host now writes RX_FAULT_BYTES records containing the complete offending line as hexadecimal, byte count, reason and transport before decoding/rejection. Framing-overflow bytes are also retained. Normal ASCII traffic does not create extra fault-byte records. Existing rejection rules and detector calculations are unchanged. Earlier recordings cannot recover the original corrupted bytes from replacement characters.
+
+Host revision: 2026-10-12-r3-host-capture1; detector revision remains host-history1. All 90 tests passed, including split invalid lines, unchanged rejection, normal ASCII behavior and framing overflow. A monitor process restart is required to load this logging fix.

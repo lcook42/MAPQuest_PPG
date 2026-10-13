@@ -51,8 +51,8 @@
   },
   {
     "path": "PlatformIO/tools/monitor.py",
-    "source_sha256": "a8ca35fe70601bf6167f3f8b3ca5630014831596fd4310967d3199ec5ab51d21",
-    "export_sha256": "a8ca35fe70601bf6167f3f8b3ca5630014831596fd4310967d3199ec5ab51d21"
+    "source_sha256": "bb2096c836098607b9298e9d46d332c7bdfb7c0e9cdd15018ff8b597aca340f4",
+    "export_sha256": "bb2096c836098607b9298e9d46d332c7bdfb7c0e9cdd15018ff8b597aca340f4"
   },
   {
     "path": "PlatformIO/tools/replay.py",
@@ -146,8 +146,8 @@
   },
   {
     "path": "CALIBRATION_HISTORY_UPDATE.md",
-    "source_sha256": "d58eeb323af1f8645ade33559c66fac295ee0d7d084c0d9cfaa7cf5d90613bc7",
-    "export_sha256": "d58eeb323af1f8645ade33559c66fac295ee0d7d084c0d9cfaa7cf5d90613bc7"
+    "source_sha256": "95d5109ab4fc270259887beaceafddc45682206c4772a5dec48339114b02a371",
+    "export_sha256": "95d5109ab4fc270259887beaceafddc45682206c4772a5dec48339114b02a371"
   },
   {
     "path": "Configure_WiFi.cmd",
@@ -238,5 +238,10 @@
     "path": "Upload_Firmware.cmd",
     "source_sha256": "a527b7af14dd49b78568ad81c89e5430f8c4fa6b9882699b98a89386f3ca52b3",
     "export_sha256": "a527b7af14dd49b78568ad81c89e5430f8c4fa6b9882699b98a89386f3ca52b3"
+  },
+  {
+    "path": "PlatformIO/tools/test_stream_evidence.py",
+    "source_sha256": "2331dff29b1bbf56070013334a0208ba21384567a1f2cc9dad7d53687fb5b814",
+    "export_sha256": "2331dff29b1bbf56070013334a0208ba21384567a1f2cc9dad7d53687fb5b814"
   }
 ]

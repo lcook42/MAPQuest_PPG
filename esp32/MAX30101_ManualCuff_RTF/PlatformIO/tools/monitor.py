@@ -25,6 +25,7 @@ from calibration_history import CalibrationHistory
 from troubleshooting import suggestions
 
 ROOT=Path(__file__).resolve().parents[2]
+HOST_REVISION='2026-10-12-r3-host-capture1'
 SOURCE_SNAPSHOT={name:Path(__file__).with_name(name).read_bytes() for name in
                  ('monitor.py','rtf_detector.py','channel_calibration.py','calibration_history.py','troubleshooting.py','replay.py')}
 SOURCE_HASHES={name:hashlib.sha256(data).hexdigest() for name,data in SOURCE_SNAPSHOT.items()}
@@ -40,6 +41,7 @@ def choose_connection(host):
 
 class Connection:
     def __init__(self, host=None, port=None):
+        self.capture_rx_fault=None
         self.tcp=bool(host)
         if host:
             self.io=socket.create_connection((host,8765),timeout=5)
@@ -66,11 +68,20 @@ class Connection:
             return []
         if self.tcp and not b: raise ConnectionError('Wi-Fi disconnected')
         self.pending+=b
-        if len(self.pending)>65536: raise ConnectionError('serial/network framing overflow')
+        if len(self.pending)>65536:
+            if self.capture_rx_fault:self.capture_rx_fault(self.pending,'framing_overflow')
+            raise ConnectionError('serial/network framing overflow')
         lines=self.pending.split(b'\n'); self.pending=lines.pop()
         # Boot chatter is tolerated only before a verified HELLO by the host.
         # Invalid bytes after handshake remain a fatal acquisition error.
-        return [s.decode('ascii',errors='replace').strip() for s in lines]
+        decoded=[]
+        for s in lines:
+            # Preserve the actual offending bytes before replacement decoding.
+            # Previously wire.txt retained only U+FFFD, losing diagnostic evidence.
+            if not s.isascii() and self.capture_rx_fault:
+                self.capture_rx_fault(s+b'\n','invalid_ascii')
+            decoded.append(s.decode('ascii',errors='replace').strip())
+        return decoded
 
     def close(self): self.io.close()
 
@@ -93,6 +104,8 @@ class Monitor:
         self.trace=(directory/'replay.jsonl').open('w',encoding='utf-8',buffering=1)
         self.raw=(directory/'samples.csv').open('w',newline='',encoding='utf-8',buffering=1)
         self.writer=csv.writer(self.raw)
+        self.link.capture_rx_fault=lambda data,reason:self.record('RX_FAULT_BYTES',
+            reason=reason,byte_count=len(data),hex=data.hex(),transport=self.transport)
         self.writer.writerow(['host_monotonic','sequence','device_read_ms','epoch']+
                              (['red','ir','green','red_led','ir_led','green_led'] if three else ['red','ir','red_led','ir_led']))
         self.messages=[]; self.wave=[]; self.annotation=None; self.annotated_at=None
@@ -111,6 +124,7 @@ class Monitor:
         snapshot=self.directory/'source_snapshot';snapshot.mkdir(exist_ok=True)
         for name,data in SOURCE_SNAPSHOT.items():(snapshot/name).write_bytes(data)
         self.record('META',version=VERSION,detector_revision=DETECTOR_REVISION,source_sha256=SOURCE_HASHES,
+                    host_revision=HOST_REVISION,
                     sensitive=sensitive,synthetic=synthetic,sensor_site=site,
                     acquisition_channels=list(CHANNELS[:self.nchannels]),transport=self.transport)
         self.message('Sensor site: '+site.replace('_',' ')+'. Support the arm; mount distal to the cuff, outside its compression area. Keep cuff fully deflated.')
@@ -142,6 +156,7 @@ class Monitor:
                     transport=self.transport,acquisition_channels=list(CHANNELS[:self.nchannels]),
                     selection=self.selection,channel_metrics=[dict(v,used_for_detection=v['channel'] in decision_channels) for v in self.channel_metrics],leds=self.leds,
                     decision_channels=decision_channels,detector_revision=DETECTOR_REVISION,
+                    host_revision=HOST_REVISION,
                     calibration_history=self.calibration_history.summaries(),use_calibration_history=self.use_calibration_history,
                     failure_reason=self.last_problem,failure_suggestions=suggestions(self.last_problem,self.tune_results if self.three and self.selection and not self.selection.get('qualified') else []),
                     tune_phase=self.tune_phase,tune_trial=self.tune_index+1,tune_total=len(self.tune_candidates),
