@@ -221,3 +221,7 @@ several samples in one burst share it. It is there for jitter diagnostics only.
 Bench experiment, **not a medical device**. Occlusion ≤ 2 min per trial, 2–3 min rest between.
 Stop immediately for pain, numbness or tingling. Exclude anyone on anticoagulants or with vascular
 disease or fragile skin. Full protocol in SPEC §8.
+
+## ESP32 DevKit V1 manual cuff monitor
+
+The current MAX30101 three-channel recorder and laptop monitor are in [esp32/MAX30101_ManualCuff_RTF](esp32/MAX30101_ManualCuff_RTF/README.md). This is a separate runnable ESP32 DevKit V1 project, not a XIAO firmware replacement. See [the latest host update](esp32/MAX30101_ManualCuff_RTF/CALIBRATION_HISTORY_UPDATE.md) for calibration history, GREEN baseline limits and failure help. Recordings, network credentials and build caches are excluded.

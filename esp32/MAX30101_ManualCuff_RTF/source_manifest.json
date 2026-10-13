@@ -1,0 +1,242 @@
+[
+  {
+    "path": "Arduino/MAX30101_ManualCuff_RTF/MAX30101_ManualCuff_RTF.ino",
+    "source_sha256": "936eb0a0cb1408b30c8eb0a4cd4b5f844b02191d7554c511d023fdfd7d1db5fd",
+    "export_sha256": "936eb0a0cb1408b30c8eb0a4cd4b5f844b02191d7554c511d023fdfd7d1db5fd"
+  },
+  {
+    "path": "PlatformIO/platformio.ini",
+    "source_sha256": "bea5d678be4b026a5f2eefc939c202da04b80566d20a608ea2ce300433468ad4",
+    "export_sha256": "1d4531aeded3a79c630456f46dd998852d2c2213af60ce0e9ca4bb951b36c54f"
+  },
+  {
+    "path": "PlatformIO/src/main.cpp",
+    "source_sha256": "936eb0a0cb1408b30c8eb0a4cd4b5f844b02191d7554c511d023fdfd7d1db5fd",
+    "export_sha256": "936eb0a0cb1408b30c8eb0a4cd4b5f844b02191d7554c511d023fdfd7d1db5fd"
+  },
+  {
+    "path": "PlatformIO/tools/calibration_history.py",
+    "source_sha256": "15dc5f7f704b42af08826cf4638110d8964829f724de4eabb71f8627cebd1b98",
+    "export_sha256": "15dc5f7f704b42af08826cf4638110d8964829f724de4eabb71f8627cebd1b98"
+  },
+  {
+    "path": "PlatformIO/tools/channel_calibration.py",
+    "source_sha256": "c4beb73e59deb910996b07c7630d6c2469b7f7cb20bfe14c10bf4fb2a32268f1",
+    "export_sha256": "c4beb73e59deb910996b07c7630d6c2469b7f7cb20bfe14c10bf4fb2a32268f1"
+  },
+  {
+    "path": "PlatformIO/tools/configure_wifi.py",
+    "source_sha256": "983620b00ba3303dd2ba590af9fe62865ac2f3acf1ae5fdf591d7c697b06af3b",
+    "export_sha256": "983620b00ba3303dd2ba590af9fe62865ac2f3acf1ae5fdf591d7c697b06af3b"
+  },
+  {
+    "path": "PlatformIO/tools/dashboard.html",
+    "source_sha256": "29f337ec46fbf6d0547707d3de6d04a43d84371f383267d05be7f18fb2685b79",
+    "export_sha256": "be124c9baf60d1ca57ecf9e1a29ff472d817df5445d8ffa112eef8c588aab540"
+  },
+  {
+    "path": "PlatformIO/tools/demo.py",
+    "source_sha256": "aa58dc89fb435b69281fd6c424bdfb9e560e4654397a6ab56cf233fce471af5f",
+    "export_sha256": "aa58dc89fb435b69281fd6c424bdfb9e560e4654397a6ab56cf233fce471af5f"
+  },
+  {
+    "path": "PlatformIO/tools/diagnostic.html",
+    "source_sha256": "bb42aa68309d23b202579243f54f0ae78c76f3a8ef5c909f45ae825a96947ffa",
+    "export_sha256": "bb42aa68309d23b202579243f54f0ae78c76f3a8ef5c909f45ae825a96947ffa"
+  },
+  {
+    "path": "PlatformIO/tools/diagnostic.py",
+    "source_sha256": "ae15fc09b8f9f9614d2d15142ce8a4bfa15e60c3df864e0d91e512f6310523bb",
+    "export_sha256": "ae15fc09b8f9f9614d2d15142ce8a4bfa15e60c3df864e0d91e512f6310523bb"
+  },
+  {
+    "path": "PlatformIO/tools/monitor.py",
+    "source_sha256": "a8ca35fe70601bf6167f3f8b3ca5630014831596fd4310967d3199ec5ab51d21",
+    "export_sha256": "a8ca35fe70601bf6167f3f8b3ca5630014831596fd4310967d3199ec5ab51d21"
+  },
+  {
+    "path": "PlatformIO/tools/replay.py",
+    "source_sha256": "125607a5e17d5ba1f4dcab3d448bda25861f20c727a482d0bced150f321b3fc2",
+    "export_sha256": "125607a5e17d5ba1f4dcab3d448bda25861f20c727a482d0bced150f321b3fc2"
+  },
+  {
+    "path": "PlatformIO/tools/requirements.txt",
+    "source_sha256": "d04c3d482424efd20bbc60f0e0b352d7426e7401812afb8172654c20fb8e304f",
+    "export_sha256": "8c740f091b15f8463d2b56bde179e608d6e2ef7ba4fdf7831a258df3289d5ec9"
+  },
+  {
+    "path": "PlatformIO/tools/rtf_detector.py",
+    "source_sha256": "6a44b3cfc0ba016427b8599ea3583ed681221f5eed113a349e62bf0443e2e5a4",
+    "export_sha256": "6a44b3cfc0ba016427b8599ea3583ed681221f5eed113a349e62bf0443e2e5a4"
+  },
+  {
+    "path": "PlatformIO/tools/start_testing.py",
+    "source_sha256": "957d8e4e3c286acc0ecbce3f764d9ac238fb7c54cce939966abb87ab85a93460",
+    "export_sha256": "957d8e4e3c286acc0ecbce3f764d9ac238fb7c54cce939966abb87ab85a93460"
+  },
+  {
+    "path": "PlatformIO/tools/sync_firmware.py",
+    "source_sha256": "7fda3b0b8e7cefb697738421a4977a029c6b3476ad0e21679a3120e44365bda6",
+    "export_sha256": "2a01aa157229a2f97a1dfafec6668e2d7a6685649fe41985f8c59c9db09fe8fb"
+  },
+  {
+    "path": "PlatformIO/tools/test_arm.py",
+    "source_sha256": "4683303e91eb94ca9a0bc827379c97b58a6bc137a977729123d8d09de0855ee8",
+    "export_sha256": "4683303e91eb94ca9a0bc827379c97b58a6bc137a977729123d8d09de0855ee8"
+  },
+  {
+    "path": "PlatformIO/tools/test_audit_guards.py",
+    "source_sha256": "8e6b30eabefe78b4cda43d913754d4c0455532eac684d4e1297e1848f40eabcd",
+    "export_sha256": "8e6b30eabefe78b4cda43d913754d4c0455532eac684d4e1297e1848f40eabcd"
+  },
+  {
+    "path": "PlatformIO/tools/test_calibration_history.py",
+    "source_sha256": "081502216e221a6e1f618eb4b150f0094d5f4755f8a22adb6156249665f8cfdd",
+    "export_sha256": "081502216e221a6e1f618eb4b150f0094d5f4755f8a22adb6156249665f8cfdd"
+  },
+  {
+    "path": "PlatformIO/tools/test_current_search.py",
+    "source_sha256": "32f14716b10b0be72043e2e237a2ffd4a7c0e1091da81ddff12baafd1bde7552",
+    "export_sha256": "32f14716b10b0be72043e2e237a2ffd4a7c0e1091da81ddff12baafd1bde7552"
+  },
+  {
+    "path": "PlatformIO/tools/test_detector.py",
+    "source_sha256": "8aabc51c84ee945d24235d94232ed50475ad88c8c5c3401640a284cd6d1f5120",
+    "export_sha256": "0e11b14ebc029c2e29c76a3c8616e6fa78b3aff05cb8778fca8b6f305fa03ef4"
+  },
+  {
+    "path": "PlatformIO/tools/test_diagnostic.py",
+    "source_sha256": "144684fedb5297ceab3d67de3cc68aaea0aea1761ff0c121fbda1bf361f1dd42",
+    "export_sha256": "144684fedb5297ceab3d67de3cc68aaea0aea1761ff0c121fbda1bf361f1dd42"
+  },
+  {
+    "path": "PlatformIO/tools/test_occlusion_feedback.py",
+    "source_sha256": "f7983b08941e50d41bc1844c0d27954e1dd40e9c9edcfb445aa906ed1c9debcd",
+    "export_sha256": "f7983b08941e50d41bc1844c0d27954e1dd40e9c9edcfb445aa906ed1c9debcd"
+  },
+  {
+    "path": "PlatformIO/tools/test_session_controls.py",
+    "source_sha256": "5083cce0bfadfdc20f7df37b30bbf194f4bb646935157503ecdce2c722547b9b",
+    "export_sha256": "5083cce0bfadfdc20f7df37b30bbf194f4bb646935157503ecdce2c722547b9b"
+  },
+  {
+    "path": "PlatformIO/tools/test_system.py",
+    "source_sha256": "e2e73e69737b441948e08f4212b48174298b1159d9a5773f9969544720f1396b",
+    "export_sha256": "e2e73e69737b441948e08f4212b48174298b1159d9a5773f9969544720f1396b"
+  },
+  {
+    "path": "PlatformIO/tools/test_three_channel.py",
+    "source_sha256": "c585c8b21be70d32fabdbce7ef0ec37c910979e04ed9e63b831e4ceeb13cfedc",
+    "export_sha256": "c585c8b21be70d32fabdbce7ef0ec37c910979e04ed9e63b831e4ceeb13cfedc"
+  },
+  {
+    "path": "PlatformIO/tools/troubleshooting.py",
+    "source_sha256": "843e6b58dee2a79a84b02ed255840262b6b8ba7875593960123ccc32fa3f0c77",
+    "export_sha256": "843e6b58dee2a79a84b02ed255840262b6b8ba7875593960123ccc32fa3f0c77"
+  },
+  {
+    "path": ".gitignore",
+    "source_sha256": "20bcb433991249752a4301a406c7441481bf3f04455ae438bed938bad0a0357c",
+    "export_sha256": "20bcb433991249752a4301a406c7441481bf3f04455ae438bed938bad0a0357c"
+  },
+  {
+    "path": "AUTO_CURRENT.md",
+    "source_sha256": "7f95ca41818af27b76339c4cb5bf506004b4019dc4e46b56f28e108158fd54fc",
+    "export_sha256": "7f95ca41818af27b76339c4cb5bf506004b4019dc4e46b56f28e108158fd54fc"
+  },
+  {
+    "path": "CALIBRATION_HISTORY_UPDATE.md",
+    "source_sha256": "d58eeb323af1f8645ade33559c66fac295ee0d7d084c0d9cfaa7cf5d90613bc7",
+    "export_sha256": "d58eeb323af1f8645ade33559c66fac295ee0d7d084c0d9cfaa7cf5d90613bc7"
+  },
+  {
+    "path": "Configure_WiFi.cmd",
+    "source_sha256": "a1fbc2ad3c1cf5704e578074eb3eaf6b2efea63477e53723eb03b1b0b5106c95",
+    "export_sha256": "a1fbc2ad3c1cf5704e578074eb3eaf6b2efea63477e53723eb03b1b0b5106c95"
+  },
+  {
+    "path": "DIAGNOSTICS.md",
+    "source_sha256": "3cfdab44c77690be686445c440d831ffb14f492003adbabb547431d0043e7791",
+    "export_sha256": "3cfdab44c77690be686445c440d831ffb14f492003adbabb547431d0043e7791"
+  },
+  {
+    "path": "MAX30101_ManualCuff_RTF.code-workspace",
+    "source_sha256": "d095e268fc469610d299a283f4c52eeb6e10df15cb302bc5b541a349ab124899",
+    "export_sha256": "d095e268fc469610d299a283f4c52eeb6e10df15cb302bc5b541a349ab124899"
+  },
+  {
+    "path": "README.md",
+    "source_sha256": "91d3fea6ba3028184370a05279cbc7323a3db94b0ac69a434b6853e1ebd76e13",
+    "export_sha256": "91d3fea6ba3028184370a05279cbc7323a3db94b0ac69a434b6853e1ebd76e13"
+  },
+  {
+    "path": "Run.cmd",
+    "source_sha256": "43ac6cbd33d5397d9a3a79a7744b7cae2e1ed0ce6bf2f082267d378af2ef85df",
+    "export_sha256": "43ac6cbd33d5397d9a3a79a7744b7cae2e1ed0ce6bf2f082267d378af2ef85df"
+  },
+  {
+    "path": "Setup_Windows.cmd",
+    "source_sha256": "122c397495be8d66889ab92e4846643c02c4eb156d3cc6661582f26b12dceb6c",
+    "export_sha256": "122c397495be8d66889ab92e4846643c02c4eb156d3cc6661582f26b12dceb6c"
+  },
+  {
+    "path": "Start_Diagnostics.cmd",
+    "source_sha256": "1086c4b59896ab23fb9851457fe0243b41afa0dc4c3f2dda1d719d71cd59bad9",
+    "export_sha256": "1086c4b59896ab23fb9851457fe0243b41afa0dc4c3f2dda1d719d71cd59bad9"
+  },
+  {
+    "path": "Start_Forearm_Auto.cmd",
+    "source_sha256": "d8c6d9dbbf1916db9c19ed575c0853611580c10b84a7bca051dd7836a86a776c",
+    "export_sha256": "d8c6d9dbbf1916db9c19ed575c0853611580c10b84a7bca051dd7836a86a776c"
+  },
+  {
+    "path": "Start_Forearm_USB.cmd",
+    "source_sha256": "549f2c40820072535b14815859cfec1af771778db43c6b008cdb6aa0559ee416",
+    "export_sha256": "549f2c40820072535b14815859cfec1af771778db43c6b008cdb6aa0559ee416"
+  },
+  {
+    "path": "Start_Forearm_Weak_USB.cmd",
+    "source_sha256": "b7b6ce0bcfa9ddaf0b683bb5164144dfd81c0f76553acbecba85fb13535da5b9",
+    "export_sha256": "b7b6ce0bcfa9ddaf0b683bb5164144dfd81c0f76553acbecba85fb13535da5b9"
+  },
+  {
+    "path": "Start_Forearm_WiFi.cmd",
+    "source_sha256": "d69f0b118017ff66dc14ad5072a175c9ea008c13334d53e7d3c6a3e3f54ac97d",
+    "export_sha256": "d69f0b118017ff66dc14ad5072a175c9ea008c13334d53e7d3c6a3e3f54ac97d"
+  },
+  {
+    "path": "Start_Sensitive_Test.cmd",
+    "source_sha256": "0a63990296108254107fd74c692a97e4bfa3140f1f62e1f3cb9e47f5f1510259",
+    "export_sha256": "0a63990296108254107fd74c692a97e4bfa3140f1f62e1f3cb9e47f5f1510259"
+  },
+  {
+    "path": "Start_Testing.cmd",
+    "source_sha256": "45bde4203ce0a3b5bb84881bd13fbb8e9197061e8fb8da12569da6c865436afe",
+    "export_sha256": "45bde4203ce0a3b5bb84881bd13fbb8e9197061e8fb8da12569da6c865436afe"
+  },
+  {
+    "path": "Start_USB.cmd",
+    "source_sha256": "cbe51f19175054f9606b07c82c5287355c59ab7786a4397f60df1fd65f1cf98f",
+    "export_sha256": "cbe51f19175054f9606b07c82c5287355c59ab7786a4397f60df1fd65f1cf98f"
+  },
+  {
+    "path": "Start_WiFi.cmd",
+    "source_sha256": "3d242973bdfb0a3106f2bb452696cf9c40f7b999bd9f81ed71f6c88e5be30bc4",
+    "export_sha256": "3d242973bdfb0a3106f2bb452696cf9c40f7b999bd9f81ed71f6c88e5be30bc4"
+  },
+  {
+    "path": "THREE_CHANNEL_RTF.md",
+    "source_sha256": "7ccc37381f68d5435fdc43a40233b3826be32e10bc83df158883a7632030efe1",
+    "export_sha256": "7ccc37381f68d5435fdc43a40233b3826be32e10bc83df158883a7632030efe1"
+  },
+  {
+    "path": "TRANSPORT_RECOVERY.md",
+    "source_sha256": "4205344ea719276681533242b59d174bee72312f296affcd9359d23b27614ebc",
+    "export_sha256": "4205344ea719276681533242b59d174bee72312f296affcd9359d23b27614ebc"
+  },
+  {
+    "path": "Upload_Firmware.cmd",
+    "source_sha256": "a527b7af14dd49b78568ad81c89e5430f8c4fa6b9882699b98a89386f3ca52b3",
+    "export_sha256": "a527b7af14dd49b78568ad81c89e5430f8c4fa6b9882699b98a89386f3ca52b3"
+  }
+]
